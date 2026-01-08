@@ -2,6 +2,8 @@ package com.jonny.healthtrack
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -15,6 +17,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,20 +33,30 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.FileProvider
@@ -60,6 +73,8 @@ import java.io.FileInputStream
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.*
@@ -133,46 +148,54 @@ fun AppContent(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
-    // Subscribe to DB Flow
     val logs by repository.allLogs.collectAsState(initial = emptyList())
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
+
+    fun toggleSettingsPane() {
+        if (currentScreen is Screen.Settings) {
+            currentScreen = Screen.Home
+        } else {
+            currentScreen = Screen.Settings
+        }
+    }
+
+    fun createLog(file: File?, note: String, lat: Double?, long: Double?, isOriginal: Boolean) {
+        scope.launch {
+            val newLog = LogEntity(
+                timestamp = System.currentTimeMillis(),
+                imagePath = file?.absolutePath ?: "",
+                note = note,
+                latitude = lat,
+                longitude = long,
+                isOriginalImage = isOriginal
+            )
+            repository.addLog(newLog)
+            // Navigate to detail after creation
+            currentScreen = Screen.Detail(newLog.id)
+        }
+    }
 
     // Adaptive Layout Logic
     BoxWithConstraints {
         val isWideScreen = maxWidth > 600.dp
 
         if (isWideScreen) {
-            // Tablet/Unfolded Layout
             Row(Modifier.fillMaxSize()) {
-                // Left Pane: List (Home)
-                // If Home, full width. If Detail/Settings, 50% width.
                 val listWeight = if (currentScreen is Screen.Home) 1f else 0.5f
                 
                 Box(Modifier.weight(listWeight).fillMaxHeight()) {
                     HomeScreen(
                         logs = logs,
-                        onAddLog = { file, note, lat, long ->
-                            scope.launch {
-                                repository.addLog(
-                                    LogEntity(
-                                        timestamp = System.currentTimeMillis(),
-                                        imagePath = file.absolutePath,
-                                        note = note,
-                                        latitude = lat,
-                                        longitude = long
-                                    )
-                                )
-                            }
+                        onAddLog = { file, note, lat, long, isOriginal ->
+                            createLog(file, note, lat, long, isOriginal)
                         },
-                        onNavigateToSettings = { currentScreen = Screen.Settings },
+                        onNavigateToSettings = { toggleSettingsPane() },
                         onNavigateToDetail = { logId -> currentScreen = Screen.Detail(logId) },
                         isWideScreen = true
                     )
                 }
                 
-                // Right Pane: Detail or Settings
                 if (currentScreen !is Screen.Home) {
-                    // Vertical Divider
                     Divider(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
                         modifier = Modifier.fillMaxHeight().width(1.dp)
@@ -192,6 +215,9 @@ fun AppContent(
                                                 currentScreen = Screen.Home
                                             }
                                         },
+                                        onUpdate = { updatedLog ->
+                                            scope.launch { repository.updateLog(updatedLog) }
+                                        },
                                         showBackButton = false,
                                         showCloseButton = true
                                     )
@@ -201,27 +227,7 @@ fun AppContent(
                                 isDarkTheme = isDarkTheme,
                                 onToggleTheme = onToggleTheme,
                                 onBack = { currentScreen = Screen.Home },
-                                onExportLite = { start, end ->
-                                    scope.launch {
-                                        try {
-                                            val file = repository.exportLite(start, end)
-                                            shareFile(context, file, "application/json")
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "Export Failed", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                },
-                                onExportFull = { start, end ->
-                                    scope.launch {
-                                        try {
-                                            Toast.makeText(context, "Preparing ZIP...", Toast.LENGTH_SHORT).show()
-                                            val file = repository.exportFull(start, end)
-                                            shareFile(context, file, "application/zip")
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "Export Failed", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                },
+                                repository = repository,
                                 showBackButton = false,
                                 showCloseButton = true
                             )
@@ -231,7 +237,6 @@ fun AppContent(
                 }
             }
         } else {
-            // Mobile/Folded Layout
             BackHandler(enabled = currentScreen !is Screen.Home) {
                 currentScreen = Screen.Home
             }
@@ -239,18 +244,8 @@ fun AppContent(
             when (val screen = currentScreen) {
                 Screen.Home -> HomeScreen(
                     logs = logs,
-                    onAddLog = { file, note, lat, long ->
-                        scope.launch {
-                            repository.addLog(
-                                LogEntity(
-                                    timestamp = System.currentTimeMillis(),
-                                    imagePath = file.absolutePath,
-                                    note = note,
-                                    latitude = lat,
-                                    longitude = long
-                                )
-                            )
-                        }
+                    onAddLog = { file, note, lat, long, isOriginal ->
+                        createLog(file, note, lat, long, isOriginal)
                     },
                     onNavigateToSettings = { currentScreen = Screen.Settings },
                     onNavigateToDetail = { logId -> currentScreen = Screen.Detail(logId) },
@@ -260,27 +255,7 @@ fun AppContent(
                     isDarkTheme = isDarkTheme,
                     onToggleTheme = onToggleTheme,
                     onBack = { currentScreen = Screen.Home },
-                    onExportLite = { start, end ->
-                        scope.launch {
-                            try {
-                                val file = repository.exportLite(start, end)
-                                shareFile(context, file, "application/json")
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Export Failed", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
-                    onExportFull = { start, end ->
-                        scope.launch {
-                            try {
-                                Toast.makeText(context, "Preparing ZIP...", Toast.LENGTH_SHORT).show()
-                                val file = repository.exportFull(start, end)
-                                shareFile(context, file, "application/zip")
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Export Failed", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
+                    repository = repository,
                     showBackButton = true,
                     showCloseButton = false
                 )
@@ -295,6 +270,9 @@ fun AppContent(
                                     repository.deleteLog(log)
                                     currentScreen = Screen.Home
                                 }
+                            },
+                            onUpdate = { updatedLog ->
+                                scope.launch { repository.updateLog(updatedLog) }
                             },
                             showBackButton = true,
                             showCloseButton = false
@@ -313,26 +291,31 @@ fun AppContent(
 @Composable
 fun HomeScreen(
     logs: List<LogEntity>,
-    onAddLog: (File, String, Double?, Double?) -> Unit,
+    onAddLog: (File?, String, Double?, Double?, Boolean) -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToDetail: (String) -> Unit,
     isWideScreen: Boolean
 ) {
     val context = LocalContext.current
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
-    var showNoteDialog by remember { mutableStateOf(false) }
+    var showReuseDialog by remember { mutableStateOf(false) }
+    var showNoteDialog by remember { mutableStateOf(false) } // For pure note entry
     var tempPhotoFile by remember { mutableStateOf<File?>(null) }
+    var showFabMenu by remember { mutableStateOf(false) }
 
     val filteredLogs = logs.filter {
         val logDate = Instant.ofEpochMilli(it.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
         logDate == selectedDate
     }
 
+    // 1. Camera: Immediately creates log on success
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
         if (success && tempPhotoFile != null) {
-            showNoteDialog = true
+            getLastLocation(context) { lat, long ->
+                onAddLog(tempPhotoFile, "", lat, long, true) // Empty note, Original = true
+            }
         }
     }
 
@@ -352,18 +335,133 @@ fun HomeScreen(
         }
     }
 
+    if (showReuseDialog) {
+        val recentLogs = logs.take(20)
+        ModalBottomSheet(onDismissRequest = { showReuseDialog = false }) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Reuse Recent Entry", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(16.dp))
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(recentLogs) { log ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showReuseDialog = false
+                                    // Reuse Logic: Immediate creation with old note + image
+                                    getLastLocation(context) { lat, long ->
+                                        onAddLog(
+                                            if (log.imagePath.isNotEmpty()) File(log.imagePath) else null,
+                                            log.note, // Keep old note
+                                            lat, 
+                                            long, 
+                                            false // Original = false (Reuse)
+                                        )
+                                    }
+                                }
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (log.isPrivate || log.imagePath.isEmpty()) {
+                                Box(
+                                    modifier = Modifier.size(40.dp).background(Color.Gray),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if(log.imagePath.isEmpty()) Text("T", color = Color.White) else Icon(Icons.Default.Lock, null, tint = Color.White)
+                                }
+                            } else {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(File(log.imagePath))
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(4.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text(if(log.note.isNotEmpty()) log.note else "No Note", fontWeight = FontWeight.Bold, maxLines = 1)
+                                Text(
+                                    SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(log.timestamp)),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                        Divider()
+                    }
+                }
+                Spacer(Modifier.height(32.dp))
+            }
+        }
+    }
+
+    // Pure Note Dialog
+    if (showNoteDialog) {
+        NoteDialog(
+            initialNote = "",
+            onDismiss = { showNoteDialog = false },
+            onConfirm = { note ->
+                getLastLocation(context) { lat, long ->
+                    onAddLog(null, note, lat, long, true) // No image
+                    showNoteDialog = false
+                }
+            }
+        )
+    }
+
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                permissionLauncher.launch(
-                    arrayOf(
-                        Manifest.permission.CAMERA,
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    )
-                )
-            }) {
-                Icon(Icons.Default.Add, contentDescription = "Add Log")
+            Column(horizontalAlignment = Alignment.End) {
+                if (showFabMenu) {
+                    FloatingActionButton(
+                        onClick = {
+                            showFabMenu = false
+                            showReuseDialog = true
+                        },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    ) {
+                        Icon(Icons.Default.Refresh, "Reuse History")
+                    }
+                    
+                    FloatingActionButton(
+                        onClick = {
+                            showFabMenu = false
+                            showNoteDialog = true
+                        },
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    ) {
+                        Icon(Icons.Default.Create, "Text Only")
+                    }
+                    
+                    FloatingActionButton(
+                        onClick = {
+                            showFabMenu = false
+                            permissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.CAMERA,
+                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                    Manifest.permission.ACCESS_COARSE_LOCATION
+                                )
+                            )
+                        },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    ) {
+                        Icon(Icons.Default.Add, "New Entry")
+                    }
+                }
+                
+                FloatingActionButton(onClick = { showFabMenu = !showFabMenu }) {
+                    if (showFabMenu) {
+                        Icon(Icons.Default.Close, "Close Menu")
+                    } else {
+                        Icon(Icons.Default.Add, "Menu")
+                    }
+                }
             }
         },
         topBar = {
@@ -401,20 +499,6 @@ fun HomeScreen(
         Box(modifier = Modifier.padding(paddingValues)) {
             LogList(filteredLogs, onLogClick = { onNavigateToDetail(it.id) })
         }
-
-        if (showNoteDialog) {
-            NoteDialog(
-                onDismiss = { showNoteDialog = false },
-                onConfirm = { note ->
-                    tempPhotoFile?.let { file ->
-                        getLastLocation(context) { lat, long ->
-                            onAddLog(file, note, lat, long)
-                            showNoteDialog = false
-                        }
-                    }
-                }
-            )
-        }
     }
 }
 
@@ -424,44 +508,110 @@ fun SettingsScreen(
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit,
     onBack: () -> Unit,
-    onExportLite: (Long?, Long?) -> Unit,
-    onExportFull: (Long?, Long?) -> Unit,
+    repository: LogRepository,
     showBackButton: Boolean,
     showCloseButton: Boolean
 ) {
-    // State for Date Range
-    var showDateRangePicker by remember { mutableStateOf(false) }
-    var startDate by remember { mutableStateOf<LocalDate?>(null) }
-    var endDate by remember { mutableStateOf<LocalDate?>(null) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
-    // Helpers to convert LocalDate to timestamp (start of day, end of day)
-    fun getStartTimestamp(date: LocalDate): Long =
-        date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    // Export State
+    var showExportDialog by remember { mutableStateOf(false) }
+    var exportFilename by remember { mutableStateOf("") }
+    var isFullExport by remember { mutableStateOf(false) }
+    
+    // Import State
+    var overwriteData by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
-    fun getEndTimestamp(date: LocalDate): Long =
-        date.atTime(23, 59, 59).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    // Helpers
+    val defaultFilename = "omnitracker_export_${SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())}"
 
-    if (showDateRangePicker) {
-        val datePickerState = rememberDateRangePickerState()
-        DatePickerDialog(
-            onDismissRequest = { showDateRangePicker = false },
+    // Launchers
+    val imageImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            Toast.makeText(context, "Importing ${uris.size} images...", Toast.LENGTH_SHORT).show()
+            scope.launch {
+                repository.importImages(uris, overwriteData)
+                Toast.makeText(context, "Import Complete", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val fileImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            Toast.makeText(context, "Importing data...", Toast.LENGTH_SHORT).show()
+            scope.launch {
+                repository.importData(uri, overwriteData)
+                Toast.makeText(context, "Import Complete", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = { Text("Export Data") },
+            text = {
+                Column {
+                    Text("Filename:")
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = exportFilename,
+                        onValueChange = { exportFilename = it },
+                        singleLine = true
+                    )
+                }
+            },
             confirmButton = {
-                TextButton(onClick = {
-                    val startMillis = datePickerState.selectedStartDateMillis
-                    val endMillis = datePickerState.selectedEndDateMillis
-                    if (startMillis != null && endMillis != null) {
-                        startDate = Instant.ofEpochMilli(startMillis).atZone(ZoneId.of("UTC")).toLocalDate()
-                        endDate = Instant.ofEpochMilli(endMillis).atZone(ZoneId.of("UTC")).toLocalDate()
+                Button(onClick = {
+                    showExportDialog = false
+                    scope.launch {
+                        if (isFullExport) {
+                            Toast.makeText(context, "Preparing ZIP...", Toast.LENGTH_SHORT).show()
+                            val file = repository.exportFull(filename = exportFilename)
+                            shareFile(context, file, "application/zip")
+                        } else {
+                            val file = repository.exportLite(filename = exportFilename)
+                            shareFile(context, file, "application/json")
+                        }
                     }
-                    showDateRangePicker = false
-                }) { Text("OK") }
+                }) { Text("Export") }
             },
             dismissButton = {
-                TextButton(onClick = { showDateRangePicker = false }) { Text("Cancel") }
+                TextButton(onClick = { showExportDialog = false }) { Text("Cancel") }
             }
-        ) {
-            DateRangePicker(state = datePickerState)
-        }
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete All Data", color = MaterialTheme.colorScheme.error) },
+            icon = { Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error) },
+            text = { Text("Are you absolutely sure? This will delete ALL logs and images. Please export your data first.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            repository.clearAllData()
+                            showDeleteDialog = false
+                            Toast.makeText(context, "All data deleted", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("DELETE EVERYTHING")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 
     Scaffold(
@@ -491,6 +641,8 @@ fun SettingsScreen(
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            // --- Appearance ---
+            Text("Appearance", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -499,79 +651,81 @@ fun SettingsScreen(
                 Text("Dark Theme", style = MaterialTheme.typography.bodyLarge)
                 Switch(checked = isDarkTheme, onCheckedChange = { onToggleTheme() })
             }
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            Text("Data Export", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            Spacer(modifier = Modifier.height(16.dp))
+            Divider(Modifier.padding(vertical = 16.dp))
 
-            // Date Range Selection
-            Text("Export Range", style = MaterialTheme.typography.labelMedium)
+            // --- Export ---
+            Text("Export Data", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(8.dp))
-            
-            OutlinedButton(
-                onClick = { showDateRangePicker = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.DateRange, null)
-                Spacer(Modifier.width(8.dp))
-                val rangeText = if (startDate != null && endDate != null) {
-                    "${startDate!!.format(DateTimeFormatter.ISO_LOCAL_DATE)} - ${endDate!!.format(DateTimeFormatter.ISO_LOCAL_DATE)}"
-                } else {
-                    "All Time (Tap to Select)"
-                }
-                Text(rangeText)
-            }
-
-            // Presets
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                TextButton(onClick = {
-                    startDate = LocalDate.now().minusDays(30)
-                    endDate = LocalDate.now()
-                }) { Text("Last 30 Days") }
-                
-                TextButton(onClick = {
-                    startDate = LocalDate.now().minusYears(1)
-                    endDate = LocalDate.now()
-                }) { Text("Last Year") }
-                
-                TextButton(onClick = {
-                    startDate = null
-                    endDate = null
-                }) { Text("Clear") }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
             
             Button(
                 onClick = {
-                    val start = startDate?.let { getStartTimestamp(it) }
-                    val end = endDate?.let { getEndTimestamp(it) }
-                    onExportLite(start, end)
+                    exportFilename = defaultFilename
+                    isFullExport = false
+                    showExportDialog = true
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Export JSON (Lite)")
             }
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
-                    val start = startDate?.let { getStartTimestamp(it) }
-                    val end = endDate?.let { getEndTimestamp(it) }
-                    onExportFull(start, end)
+                    exportFilename = defaultFilename
+                    isFullExport = true
+                    showExportDialog = true
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Export ZIP (Full + Images)")
             }
-            Text(
-                "Full export includes all original images.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray,
-                modifier = Modifier.padding(top = 8.dp)
-            )
+            
+            Divider(Modifier.padding(vertical = 16.dp))
+
+            // --- Import ---
+            Text("Import Data", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Overwrite Existing Data", style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = overwriteData, onCheckedChange = { overwriteData = it })
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    imageImportLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+            ) {
+                Text("Import Images")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    fileImportLauncher.launch(arrayOf("application/zip", "application/json", "application/octet-stream"))
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Import ZIP / JSONL")
+            }
+
+            Divider(Modifier.padding(vertical = 16.dp))
+
+            // --- Danger Zone ---
+            Button(
+                onClick = { showDeleteDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
+            ) {
+                Icon(Icons.Default.Delete, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Delete App Data")
+            }
         }
     }
 }
@@ -582,11 +736,40 @@ fun DetailScreen(
     log: LogEntity,
     onBack: () -> Unit,
     onDelete: () -> Unit,
+    onUpdate: (LogEntity) -> Unit,
     showBackButton: Boolean,
     showCloseButton: Boolean
 ) {
     val context = LocalContext.current
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showNoteEditDialog by remember { mutableStateOf(false) }
+    
+    // Time Edit State
+    val calendar = Calendar.getInstance().apply { timeInMillis = log.timestamp }
+    val timePickerDialog = TimePickerDialog(
+        context,
+        { _, hourOfDay, minute ->
+            calendar.set(Calendar.HOUR_OF_DAY, hourOfDay)
+            calendar.set(Calendar.MINUTE, minute)
+            onUpdate(log.copy(timestamp = calendar.timeInMillis))
+        },
+        calendar.get(Calendar.HOUR_OF_DAY),
+        calendar.get(Calendar.MINUTE),
+        false
+    )
+    val datePickerDialog = DatePickerDialog(
+        context,
+        { _, year, month, dayOfMonth ->
+            calendar.set(Calendar.YEAR, year)
+            calendar.set(Calendar.MONTH, month)
+            calendar.set(Calendar.DAY_OF_MONTH, dayOfMonth)
+            // Show time picker after date
+            timePickerDialog.show()
+        },
+        calendar.get(Calendar.YEAR),
+        calendar.get(Calendar.MONTH),
+        calendar.get(Calendar.DAY_OF_MONTH)
+    )
 
     if (showDeleteDialog) {
         AlertDialog(
@@ -612,6 +795,31 @@ fun DetailScreen(
         )
     }
 
+    if (showNoteEditDialog) {
+        var text by remember { mutableStateOf(log.note) }
+        Dialog(onDismissRequest = { showNoteEditDialog = false }) {
+            Card(shape = RoundedCornerShape(16.dp), modifier = Modifier.padding(16.dp)) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Edit Note", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = text, 
+                        onValueChange = { text = it }, 
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 5
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = { 
+                        onUpdate(log.copy(note = text))
+                        showNoteEditDialog = false 
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Save")
+                    }
+                }
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -624,6 +832,15 @@ fun DetailScreen(
                     }
                 } else ({}),
                 actions = {
+                    // Private Toggle
+                    IconButton(onClick = { onUpdate(log.copy(isPrivate = !log.isPrivate)) }) {
+                        Icon(
+                            if (log.isPrivate) Icons.Default.VisibilityOff else Icons.Default.Visibility, 
+                            "Toggle Private",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    
                     IconButton(onClick = { showDeleteDialog = true }) {
                         Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
                     }
@@ -641,24 +858,55 @@ fun DetailScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(File(log.imagePath))
-                    .crossfade(true)
-                    .build(),
-                contentDescription = "Full Log Image",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 400.dp),
-                contentScale = ContentScale.FillWidth
-            )
+            // Main Image Box
+            Box(Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 400.dp).background(Color.LightGray)) {
+                if (log.imagePath.isEmpty()) {
+                     Box(
+                        modifier = Modifier.matchParentSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No Image (Text Log)", color = Color.Gray)
+                    }
+                } else if (log.isPrivate) {
+                    Box(
+                        modifier = Modifier.matchParentSize().background(Color.DarkGray),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.VisibilityOff, null, tint = Color.White, modifier = Modifier.size(48.dp))
+                            Text("Private Image", color = Color.White)
+                        }
+                    }
+                } else {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(File(log.imagePath))
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Full Log Image",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .alpha(if (log.isOriginalImage) 1f else 0.5f), // Ghosted if reused
+                        contentScale = ContentScale.FillWidth,
+                        colorFilter = if (!log.isOriginalImage) ColorFilter.tint(Color.Gray, androidx.compose.ui.graphics.BlendMode.Saturation) else null
+                    )
+                }
+            }
             
             Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = SimpleDateFormat("EEEE, MMM d, yyyy 'at' HH:mm", Locale.getDefault()).format(Date(log.timestamp)),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                // Clickable Timestamp
+                Surface(
+                    onClick = { datePickerDialog.show() },
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ) {
+                    Text(
+                        text = SimpleDateFormat("EEEE, MMM d, yyyy 'at' HH:mm", Locale.getDefault()).format(Date(log.timestamp)) + " ✎",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
@@ -670,28 +918,37 @@ fun DetailScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
+                // Clickable Note
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().clickable { showNoteEditDialog = true },
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(Modifier.padding(16.dp)) {
-                        Text("Note", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Note", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                            Text("✎", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(log.note, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            text = if(log.note.isNotBlank()) log.note else "Tap to add note...", 
+                            style = MaterialTheme.typography.bodyLarge
+                        )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                Button(
-                    onClick = {
-                        exportImageToGallery(context, File(log.imagePath))
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Share, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Save to Gallery")
+                if (!log.isPrivate && log.imagePath.isNotEmpty()) {
+                    Button(
+                        onClick = {
+                            exportImageToGallery(context, File(log.imagePath))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Share, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Save to Gallery")
+                    }
                 }
             }
         }
@@ -729,18 +986,41 @@ fun LogItem(log: LogEntity, onClick: () -> Unit) {
                 .height(80.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(File(log.imagePath))
-                    .crossfade(true)
-                    .build(),
-                contentDescription = null,
-                modifier = Modifier
-                    .width(80.dp)
-                    .fillMaxHeight()
-                    .background(Color.Gray),
-                contentScale = ContentScale.Crop
-            )
+            if (log.imagePath.isEmpty()) {
+                 Box(
+                    modifier = Modifier
+                        .width(80.dp)
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.secondary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("T", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                }
+            } else if (log.isPrivate) {
+                Box(
+                    modifier = Modifier
+                        .width(80.dp)
+                        .fillMaxHeight()
+                        .background(Color.DarkGray),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.VisibilityOff, null, tint = Color.White)
+                }
+            } else {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(File(log.imagePath))
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .width(80.dp)
+                        .fillMaxHeight()
+                        .background(Color.Gray),
+                    contentScale = ContentScale.Crop,
+                    colorFilter = if (!log.isOriginalImage) ColorFilter.tint(Color.Gray, androidx.compose.ui.graphics.BlendMode.Saturation) else null
+                )
+            }
             
             Column(
                 modifier = Modifier
@@ -814,8 +1094,8 @@ fun DateSelector(selectedDate: LocalDate, onDateSelected: (LocalDate) -> Unit) {
 }
 
 @Composable
-fun NoteDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
+fun NoteDialog(initialNote: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var text by remember { mutableStateOf(initialNote) }
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(16.dp),

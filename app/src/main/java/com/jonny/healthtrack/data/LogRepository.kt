@@ -1,6 +1,9 @@
 package com.jonny.healthtrack.data
 
 import android.content.Context
+import android.net.Uri
+import android.os.Environment
+import androidx.exifinterface.media.ExifInterface
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
@@ -13,10 +16,12 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 // Legacy Data Class for Migration
@@ -26,16 +31,20 @@ private data class LegacyLogEntry(
     val imagePath: String,
     val note: String,
     val latitude: Double? = null,
-    val longitude: Double? = null
+    val longitude: Double? = null,
+    val isOriginalImage: Boolean = true,
+    val isPrivate: Boolean = false
 )
 
-// Export Model (No ID, clean filename)
+// Export Model
 data class ExportLogModel(
     val timestamp: Long,
     val imagePath: String,
     val note: String,
     val latitude: Double? = null,
-    val longitude: Double? = null
+    val longitude: Double? = null,
+    val isOriginalImage: Boolean = true,
+    val isPrivate: Boolean = false
 )
 
 class LogRepository(private val context: Context, private val logDao: LogDao) {
@@ -46,12 +55,24 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
         logDao.insertLog(log)
     }
 
+    suspend fun updateLog(log: LogEntity) {
+        logDao.insertLog(log)
+    }
+
     suspend fun deleteLog(log: LogEntity) {
         logDao.deleteLog(log)
-        val file = File(log.imagePath)
-        if (file.exists()) {
-            file.delete()
+        if (log.imagePath.isNotEmpty()) {
+            val file = File(log.imagePath)
+            if (file.exists()) {
+                file.delete()
+            }
         }
+    }
+
+    suspend fun clearAllData() {
+        logDao.clearAll()
+        val dir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+        dir?.listFiles()?.forEach { it.delete() }
     }
 
     fun checkAndMigrateLegacyData() {
@@ -71,7 +92,9 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
                                 imagePath = it.imagePath,
                                 note = it.note,
                                 latitude = it.latitude,
-                                longitude = it.longitude
+                                longitude = it.longitude,
+                                isOriginalImage = true, // Default for legacy
+                                isPrivate = false
                             )
                         }
                         logDao.insertAll(newLogs)
@@ -84,25 +107,164 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
         }
     }
 
-    suspend fun exportLite(startTime: Long? = null, endTime: Long? = null): File = withContext(Dispatchers.IO) {
+    // --- Import Logic ---
+
+    suspend fun importImages(uris: List<Uri>, overwrite: Boolean) = withContext(Dispatchers.IO) {
+        if (overwrite) clearAllData()
+
+        uris.forEach { uri ->
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val timeStamp = System.currentTimeMillis()
+                val tempFile = createImageFile(context) 
+                
+                inputStream?.use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                val exif = ExifInterface(tempFile.absolutePath)
+                val latLong = exif.latLong
+                val dateString = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+                    ?: exif.getAttribute(ExifInterface.TAG_DATETIME)
+
+                val finalTimestamp = if (dateString != null) {
+                    try {
+                        val sdf = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.getDefault())
+                        sdf.parse(dateString)?.time ?: timeStamp
+                    } catch (e: Exception) { timeStamp }
+                } else {
+                    timeStamp
+                }
+
+                val log = LogEntity(
+                    timestamp = finalTimestamp,
+                    imagePath = tempFile.absolutePath,
+                    note = "", 
+                    latitude = latLong?.get(0),
+                    longitude = latLong?.get(1)
+                )
+                logDao.insertLog(log)
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    suspend fun importData(uri: Uri, overwrite: Boolean) = withContext(Dispatchers.IO) {
+        if (overwrite) clearAllData()
+
+        val mimeType = context.contentResolver.getType(uri)
+        val isZip = mimeType?.contains("zip") == true || uri.path?.endsWith(".zip") == true
+
+        if (isZip) {
+            importZip(uri)
+        } else {
+            importJsonl(uri)
+        }
+    }
+
+    private suspend fun importJsonl(uri: Uri) {
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            stream.bufferedReader().useLines { lines ->
+                val gson = Gson()
+                lines.forEach { line ->
+                    try {
+                        val exportModel = gson.fromJson(line, ExportLogModel::class.java)
+                        val imagePath = if (exportModel.imagePath.isNotEmpty()) {
+                             File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), File(exportModel.imagePath).name).absolutePath
+                        } else ""
+                        
+                        val log = LogEntity(
+                            timestamp = exportModel.timestamp,
+                            imagePath = imagePath,
+                            note = exportModel.note,
+                            latitude = exportModel.latitude,
+                            longitude = exportModel.longitude,
+                            isOriginalImage = exportModel.isOriginalImage,
+                            isPrivate = exportModel.isPrivate
+                        )
+                        logDao.insertLog(log)
+                    } catch (e: Exception) { e.printStackTrace() }
+                }
+            }
+        }
+    }
+
+    private suspend fun importZip(uri: Uri) {
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            ZipInputStream(BufferedInputStream(stream)).use { zis ->
+                var entry: ZipEntry?
+                while (zis.nextEntry.also { entry = it } != null) {
+                    val name = entry!!.name
+                    if (name == "data.jsonl") {
+                        val reader = zis.bufferedReader()
+                        val jsonLines = reader.readLines()
+                        
+                        val gson = Gson()
+                        jsonLines.forEach { line ->
+                            if (line.isNotBlank()) {
+                                try {
+                                    val exportModel = gson.fromJson(line, ExportLogModel::class.java)
+                                    val imagePath = if (exportModel.imagePath.isNotEmpty()) {
+                                        File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), File(exportModel.imagePath).name).absolutePath
+                                    } else ""
+
+                                    val log = LogEntity(
+                                        timestamp = exportModel.timestamp,
+                                        imagePath = imagePath,
+                                        note = exportModel.note,
+                                        latitude = exportModel.latitude,
+                                        longitude = exportModel.longitude,
+                                        isOriginalImage = exportModel.isOriginalImage,
+                                        isPrivate = exportModel.isPrivate
+                                    )
+                                    logDao.insertLog(log)
+                                } catch (e: Exception) { e.printStackTrace() }
+                            }
+                        }
+                    } else if (name.startsWith("images/") && !entry!!.isDirectory) {
+                        val filename = File(name).name
+                        val targetFile = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), filename)
+                        
+                        FileOutputStream(targetFile).use { fos ->
+                            val buffer = ByteArray(8192)
+                            var len: Int
+                            while (zis.read(buffer).also { len = it } != -1) {
+                                fos.write(buffer, 0, len)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Exports ---
+
+    suspend fun exportLite(startTime: Long? = null, endTime: Long? = null, filename: String = "healthtrack_lite"): File = withContext(Dispatchers.IO) {
         val logs = if (startTime != null && endTime != null) {
             logDao.getLogsInRange(startTime, endTime)
         } else {
             logDao.getAllLogsSnapshot()
         }
-        val exportFile = File(context.cacheDir, "healthtrack_lite.jsonl")
+        val exportFile = File(context.cacheDir, "$filename.jsonl")
         
         exportFile.bufferedWriter().use { writer ->
             val gson = Gson()
             logs.forEach { log ->
-                val cleanName = getCleanFilename(log.timestamp)
+                val cleanName = if (log.imagePath.isNotEmpty()) getCleanFilename(log.timestamp) else ""
                 
                 val exportLog = ExportLogModel(
                     timestamp = log.timestamp,
                     imagePath = cleanName, 
                     note = log.note,
                     latitude = log.latitude,
-                    longitude = log.longitude
+                    longitude = log.longitude,
+                    isOriginalImage = log.isOriginalImage,
+                    isPrivate = log.isPrivate
                 )
                 writer.write(gson.toJson(exportLog))
                 writer.newLine()
@@ -111,49 +273,58 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
         exportFile
     }
 
-    suspend fun exportFull(startTime: Long? = null, endTime: Long? = null): File = withContext(Dispatchers.IO) {
+    suspend fun exportFull(startTime: Long? = null, endTime: Long? = null, filename: String = "healthtrack_full"): File = withContext(Dispatchers.IO) {
         val logs = if (startTime != null && endTime != null) {
             logDao.getLogsInRange(startTime, endTime)
         } else {
             logDao.getAllLogsSnapshot()
         }
-        val zipFile = File(context.cacheDir, "healthtrack_full.zip")
+        val zipFile = File(context.cacheDir, "$filename.zip")
         val gson = Gson()
 
         ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
             // 1. Create JSONL
             val jsonlBuilder = StringBuilder()
             logs.forEach { log ->
-                val cleanName = getCleanFilename(log.timestamp)
-                val relativePath = "images/$cleanName"
+                val relativePath = if (log.imagePath.isNotEmpty()) {
+                    val cleanName = getCleanFilename(log.timestamp)
+                    "images/$cleanName"
+                } else ""
                 
                 val exportLog = ExportLogModel(
                     timestamp = log.timestamp,
                     imagePath = relativePath,
                     note = log.note,
                     latitude = log.latitude,
-                    longitude = log.longitude
+                    longitude = log.longitude,
+                    isOriginalImage = log.isOriginalImage,
+                    isPrivate = log.isPrivate
                 )
                 jsonlBuilder.append(gson.toJson(exportLog)).append("\n")
             }
 
-            // Write JSONL to ZIP
+            // Write JSONL
             zos.putNextEntry(ZipEntry("data.jsonl"))
             zos.write(jsonlBuilder.toString().toByteArray())
             zos.closeEntry()
 
-            // 2. Add Images
+            // 2. Add Images (Unique)
+            val addedImages = mutableSetOf<String>()
+            
             logs.forEach { log ->
-                val imageFile = File(log.imagePath)
-                if (imageFile.exists()) {
-                    val cleanName = getCleanFilename(log.timestamp)
-                    val zipEntryName = "images/$cleanName"
-                    zos.putNextEntry(ZipEntry(zipEntryName))
-                    
-                    FileInputStream(imageFile).use { fis ->
-                        BufferedInputStream(fis).copyTo(zos)
+                if (log.imagePath.isNotEmpty()) {
+                    val imageFile = File(log.imagePath)
+                    if (imageFile.exists() && !addedImages.contains(log.imagePath)) {
+                        val cleanName = getCleanFilename(log.timestamp)
+                        val zipEntryName = "images/$cleanName"
+                        zos.putNextEntry(ZipEntry(zipEntryName))
+                        
+                        FileInputStream(imageFile).use { fis ->
+                            BufferedInputStream(fis).copyTo(zos)
+                        }
+                        zos.closeEntry()
+                        addedImages.add(log.imagePath)
                     }
-                    zos.closeEntry()
                 }
             }
         }
@@ -163,5 +334,11 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
     private fun getCleanFilename(timestamp: Long): String {
         val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
         return "img_" + sdf.format(Date(timestamp)) + ".jpg"
+    }
+
+    private fun createImageFile(context: Context): File {
+        val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val storageDir: File? = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+        return File.createTempFile("JPEG_${timeStamp}_", ".jpg", storageDir)
     }
 }
