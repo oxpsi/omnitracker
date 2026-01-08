@@ -33,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
@@ -52,7 +53,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,6 +67,9 @@ import androidx.lifecycle.lifecycleScope
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.google.android.gms.location.LocationServices
+import com.jonny.healthtrack.ai.AiAnalysisStatus
+import com.jonny.healthtrack.ai.AiPreferences
+import com.jonny.healthtrack.ai.parseAiAnalysis
 import com.jonny.healthtrack.data.AppDatabase
 import com.jonny.healthtrack.data.LogEntity
 import com.jonny.healthtrack.data.LogRepository
@@ -147,6 +153,7 @@ fun AppContent(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var aiEnabled by remember { mutableStateOf(AiPreferences.isEnabled(context)) }
     
     val logs by repository.allLogs.collectAsState(initial = emptyList())
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
@@ -170,8 +177,26 @@ fun AppContent(
                 isOriginalImage = isOriginal
             )
             repository.addLog(newLog)
+            if (aiEnabled && newLog.imagePath.isNotEmpty()) {
+                repository.analyzeLog(newLog)
+            }
             // Navigate to detail after creation
             currentScreen = Screen.Detail(newLog.id)
+        }
+    }
+
+    fun updateAiEnabled(enabled: Boolean) {
+        aiEnabled = enabled
+        AiPreferences.setEnabled(context, enabled)
+    }
+
+    fun requestAnalysis(log: LogEntity, force: Boolean, showErrors: Boolean) {
+        scope.launch {
+            val result = repository.analyzeLog(log, force)
+            if (showErrors && result.isFailure) {
+                val message = result.exceptionOrNull()?.message ?: "AI analysis failed"
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -196,11 +221,6 @@ fun AppContent(
                 }
                 
                 if (currentScreen !is Screen.Home) {
-                    Divider(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                        modifier = Modifier.fillMaxHeight().width(1.dp)
-                    )
-
                     Box(Modifier.weight(0.5f).fillMaxHeight()) {
                         when (val screen = currentScreen) {
                             is Screen.Detail -> {
@@ -218,6 +238,10 @@ fun AppContent(
                                         onUpdate = { updatedLog ->
                                             scope.launch { repository.updateLog(updatedLog) }
                                         },
+                                        onAnalyze = { logToAnalyze ->
+                                            requestAnalysis(logToAnalyze, force = true, showErrors = true)
+                                        },
+                                        aiEnabled = aiEnabled,
                                         showBackButton = false,
                                         showCloseButton = true
                                     )
@@ -226,6 +250,8 @@ fun AppContent(
                             Screen.Settings -> SettingsScreen(
                                 isDarkTheme = isDarkTheme,
                                 onToggleTheme = onToggleTheme,
+                                aiEnabled = aiEnabled,
+                                onAiEnabledChange = { updateAiEnabled(it) },
                                 onBack = { currentScreen = Screen.Home },
                                 repository = repository,
                                 showBackButton = false,
@@ -254,6 +280,8 @@ fun AppContent(
                 Screen.Settings -> SettingsScreen(
                     isDarkTheme = isDarkTheme,
                     onToggleTheme = onToggleTheme,
+                    aiEnabled = aiEnabled,
+                    onAiEnabledChange = { updateAiEnabled(it) },
                     onBack = { currentScreen = Screen.Home },
                     repository = repository,
                     showBackButton = true,
@@ -274,6 +302,10 @@ fun AppContent(
                             onUpdate = { updatedLog ->
                                 scope.launch { repository.updateLog(updatedLog) }
                             },
+                            onAnalyze = { logToAnalyze ->
+                                requestAnalysis(logToAnalyze, force = true, showErrors = true)
+                            },
+                            aiEnabled = aiEnabled,
                             showBackButton = true,
                             showCloseButton = false
                         )
@@ -507,6 +539,8 @@ fun HomeScreen(
 fun SettingsScreen(
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit,
+    aiEnabled: Boolean,
+    onAiEnabledChange: (Boolean) -> Unit,
     onBack: () -> Unit,
     repository: LogRepository,
     showBackButton: Boolean,
@@ -519,6 +553,25 @@ fun SettingsScreen(
     var showExportDialog by remember { mutableStateOf(false) }
     var exportFilename by remember { mutableStateOf("") }
     var isFullExport by remember { mutableStateOf(false) }
+    
+    // Default range: Last 30 days
+    var exportStartDate by remember { mutableStateOf(LocalDate.now().minusDays(30)) }
+    var exportEndDate by remember { mutableStateOf(LocalDate.now()) }
+
+    // Helper to pick date
+    fun showDatePicker(initialDate: LocalDate, onDatePicked: (LocalDate) -> Unit) {
+        val calendar = Calendar.getInstance()
+        calendar.set(initialDate.year, initialDate.monthValue - 1, initialDate.dayOfMonth)
+        DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                onDatePicked(LocalDate.of(year, month + 1, dayOfMonth))
+            },
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH),
+            calendar.get(Calendar.DAY_OF_MONTH)
+        ).show()
+    }
     
     // Import State
     var overwriteData by remember { mutableStateOf(false) }
@@ -565,18 +618,24 @@ fun SettingsScreen(
                         onValueChange = { exportFilename = it },
                         singleLine = true
                     )
+                    Spacer(Modifier.height(8.dp))
+                    Text("Range: ${exportStartDate} to ${exportEndDate}", style = MaterialTheme.typography.bodySmall)
                 }
             },
             confirmButton = {
                 Button(onClick = {
                     showExportDialog = false
                     scope.launch {
+                        // Convert LocalDate to millis
+                        val startMillis = exportStartDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                        val endMillis = exportEndDate.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
+
                         if (isFullExport) {
                             Toast.makeText(context, "Preparing ZIP...", Toast.LENGTH_SHORT).show()
-                            val file = repository.exportFull(filename = exportFilename)
+                            val file = repository.exportFull(startTime = startMillis, endTime = endMillis, filename = exportFilename)
                             shareFile(context, file, "application/zip")
                         } else {
-                            val file = repository.exportLite(filename = exportFilename)
+                            val file = repository.exportLite(startTime = startMillis, endTime = endMillis, filename = exportFilename)
                             shareFile(context, file, "application/json")
                         }
                     }
@@ -653,9 +712,53 @@ fun SettingsScreen(
             }
             Divider(Modifier.padding(vertical = 16.dp))
 
+            // --- AI Analysis ---
+            Text("AI Analysis", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Enable AI analysis", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Analyze new logs with Gemini 3 and store structured results.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+                Switch(checked = aiEnabled, onCheckedChange = { onAiEnabledChange(it) })
+            }
+
+            Divider(Modifier.padding(vertical = 16.dp))
+
             // --- Export ---
             Text("Export Data", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(8.dp))
+            
+            // Date Range Selection
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { showDatePicker(exportStartDate) { exportStartDate = it } },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Start Date", style = MaterialTheme.typography.labelSmall)
+                        Text(exportStartDate.format(DateTimeFormatter.ISO_LOCAL_DATE))
+                    }
+                }
+                OutlinedButton(
+                    onClick = { showDatePicker(exportEndDate) { exportEndDate = it } },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("End Date", style = MaterialTheme.typography.labelSmall)
+                        Text(exportEndDate.format(DateTimeFormatter.ISO_LOCAL_DATE))
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
             
             Button(
                 onClick = {
@@ -737,12 +840,16 @@ fun DetailScreen(
     onBack: () -> Unit,
     onDelete: () -> Unit,
     onUpdate: (LogEntity) -> Unit,
+    onAnalyze: (LogEntity) -> Unit,
+    aiEnabled: Boolean,
     showBackButton: Boolean,
     showCloseButton: Boolean
 ) {
     val context = LocalContext.current
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showNoteEditDialog by remember { mutableStateOf(false) }
+    val analysis = remember(log.analysisData) { parseAiAnalysis(log.analysisData) }
+    val isAnalyzing = log.analysisStatus == AiAnalysisStatus.PENDING
     
     // Time Edit State
     val calendar = Calendar.getInstance().apply { timeInMillis = log.timestamp }
@@ -878,18 +985,38 @@ fun DetailScreen(
                         }
                     }
                 } else {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(File(log.imagePath))
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "Full Log Image",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .alpha(if (log.isOriginalImage) 1f else 0.5f), // Ghosted if reused
-                        contentScale = ContentScale.FillWidth,
-                        colorFilter = if (!log.isOriginalImage) ColorFilter.tint(Color.Gray, androidx.compose.ui.graphics.BlendMode.Saturation) else null
-                    )
+                    Box(contentAlignment = Alignment.BottomEnd) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(File(log.imagePath))
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Full Log Image",
+                            modifier = Modifier.fillMaxWidth(),
+                            contentScale = ContentScale.FillWidth
+                        )
+                        if (!log.isOriginalImage) {
+                            Surface(
+                                shape = RoundedCornerShape(topStart = 8.dp),
+                                color = Color.Black.copy(alpha = 0.6f),
+                                modifier = Modifier.padding(start = 0.dp) // Align to corner
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Refresh, 
+                                        contentDescription = "Reused",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Reused", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
                 }
             }
             
@@ -937,7 +1064,149 @@ fun DetailScreen(
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
-                
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        val clipboardManager = LocalClipboardManager.current
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("AI Analysis", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (isAnalyzing) {
+                                    Text("Analyzing...", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                
+                                if (log.analysisStatus == AiAnalysisStatus.ERROR || analysis != null) {
+                                    IconButton(
+                                        onClick = {
+                                            val textToCopy = if (log.analysisStatus == AiAnalysisStatus.ERROR) {
+                                                "Error: ${log.analysisError}"
+                                            } else {
+                                                buildString {
+                                                    append("Title: ${analysis?.title}\n")
+                                                    append("Type: ${analysis?.type}\n")
+                                                    if (!analysis?.components.isNullOrEmpty()) {
+                                                        append("Components:\n")
+                                                        analysis?.components?.forEach { 
+                                                            append("- ${it.name}: ${it.quantity} ${it.unit}\n") 
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            clipboardManager.setText(AnnotatedString(textToCopy))
+                                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.ContentCopy, 
+                                            contentDescription = "Copy Analysis", 
+                                            tint = Color.Gray
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (isAnalyzing) {
+                            Spacer(Modifier.height(8.dp))
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+
+                        val analysisTimestamp = log.analysisUpdatedAt?.let {
+                            SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(it))
+                        }
+                        if (analysisTimestamp != null || log.analysisModel != null) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = listOfNotNull(
+                                    log.analysisModel?.let { "Model: $it" },
+                                    analysisTimestamp?.let { "Updated: $it" }
+                                ).joinToString(" • "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        when {
+                            log.imagePath.isEmpty() -> {
+                                Text("AI analysis requires a photo log.", style = MaterialTheme.typography.bodyMedium)
+                            }
+                            !aiEnabled -> {
+                                Text("Enable AI analysis in Settings to use this feature.", style = MaterialTheme.typography.bodyMedium)
+                            }
+                            log.analysisStatus == AiAnalysisStatus.ERROR -> {
+                                Text(
+                                    text = "Last analysis failed: ${log.analysisError ?: "Unknown error"}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+
+                        if (analysis != null) {
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                text = "Title: ${analysis.title ?: "Unknown"}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Type: ${analysis.type ?: "Unknown"}",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (analysis.components.isNotEmpty()) {
+                                Spacer(Modifier.height(16.dp))
+                                Text("Components", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                                Spacer(Modifier.height(4.dp))
+                                
+                                // Table Header
+                                Row(Modifier.fillMaxWidth()) {
+                                    Text("Name", Modifier.weight(2f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                    Text("Qty", Modifier.weight(1f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                    Text("Unit", Modifier.weight(1f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                }
+                                Divider(Modifier.padding(vertical = 4.dp))
+                                
+                                // Table Body
+                                analysis.components.forEach { component ->
+                                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                                        Text(component.name ?: "-", Modifier.weight(2f), style = MaterialTheme.typography.bodySmall)
+                                        Text(component.quantity?.toString() ?: "-", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                        Text(component.unit ?: "-", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        } else if (log.analysisStatus == AiAnalysisStatus.COMPLETE) {
+                            Spacer(Modifier.height(12.dp))
+                            Text("No structured data returned.", style = MaterialTheme.typography.bodyMedium)
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = { onAnalyze(log) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = aiEnabled && !isAnalyzing && log.imagePath.isNotEmpty()
+                        ) {
+                            Icon(Icons.Default.Refresh, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (analysis == null) "Analyze" else "Re-analyze")
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
                 if (!log.isPrivate && log.imagePath.isNotEmpty()) {
                     Button(
                         onClick = {
@@ -1007,19 +1276,34 @@ fun LogItem(log: LogEntity, onClick: () -> Unit) {
                     Icon(Icons.Default.VisibilityOff, null, tint = Color.White)
                 }
             } else {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(File(log.imagePath))
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .width(80.dp)
-                        .fillMaxHeight()
-                        .background(Color.Gray),
-                    contentScale = ContentScale.Crop,
-                    colorFilter = if (!log.isOriginalImage) ColorFilter.tint(Color.Gray, androidx.compose.ui.graphics.BlendMode.Saturation) else null
-                )
+                Box(contentAlignment = Alignment.BottomEnd) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(File(log.imagePath))
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .width(80.dp)
+                            .fillMaxHeight()
+                            .background(Color.Gray),
+                        contentScale = ContentScale.Crop
+                    )
+                    if (!log.isOriginalImage) {
+                        Box(
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(topStart = 4.dp))
+                                .padding(2.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh, 
+                                null, 
+                                tint = Color.White, 
+                                modifier = Modifier.size(12.dp)
+                            )
+                        }
+                    }
+                }
             }
             
             Column(

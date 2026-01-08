@@ -6,6 +6,8 @@ import android.os.Environment
 import androidx.exifinterface.media.ExifInterface
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.jonny.healthtrack.ai.AiAnalysisStatus
+import com.jonny.healthtrack.ai.AiAnalysisService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -43,11 +45,17 @@ data class ExportLogModel(
     val note: String,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val analysisData: String? = null,
+    val analysisModel: String? = null,
+    val analysisUpdatedAt: Long? = null,
+    val analysisStatus: String? = null,
+    val analysisError: String? = null,
     val isOriginalImage: Boolean = true,
     val isPrivate: Boolean = false
 )
 
 class LogRepository(private val context: Context, private val logDao: LogDao) {
+    private val aiService = AiAnalysisService()
 
     val allLogs: Flow<List<LogEntity>> = logDao.getAllLogs()
 
@@ -73,6 +81,50 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
         logDao.clearAll()
         val dir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
         dir?.listFiles()?.forEach { it.delete() }
+    }
+
+    suspend fun analyzeLog(log: LogEntity, force: Boolean = false): Result<LogEntity> = withContext(Dispatchers.IO) {
+        if (log.imagePath.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("No image available for analysis"))
+        }
+
+        val latest = logDao.getLogById(log.id) ?: log
+        if (!force && latest.analysisStatus == AiAnalysisStatus.PENDING) {
+            return@withContext Result.success(latest)
+        }
+
+        val pendingUpdate = latest.copy(
+            analysisStatus = AiAnalysisStatus.PENDING,
+            analysisUpdatedAt = System.currentTimeMillis(),
+            analysisError = null,
+            analysisModel = aiService.getActiveModelName()
+        )
+        logDao.insertLog(pendingUpdate)
+
+        val result = aiService.analyzeLog(context, File(pendingUpdate.imagePath), pendingUpdate.note)
+        val now = System.currentTimeMillis()
+
+        return@withContext if (result.isSuccess) {
+            val refreshed = logDao.getLogById(log.id) ?: pendingUpdate
+            val updated = refreshed.copy(
+                analysisData = result.getOrNull(),
+                analysisStatus = AiAnalysisStatus.COMPLETE,
+                analysisUpdatedAt = now,
+                analysisError = null,
+                analysisModel = aiService.getActiveModelName()
+            )
+            logDao.insertLog(updated)
+            Result.success(updated)
+        } else {
+            val refreshed = logDao.getLogById(log.id) ?: pendingUpdate
+            val updated = refreshed.copy(
+                analysisStatus = AiAnalysisStatus.ERROR,
+                analysisUpdatedAt = now,
+                analysisError = result.exceptionOrNull()?.message
+            )
+            logDao.insertLog(updated)
+            Result.failure(result.exceptionOrNull() ?: IllegalStateException("AI analysis failed"))
+        }
     }
 
     fun checkAndMigrateLegacyData() {
@@ -183,6 +235,11 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
                             note = exportModel.note,
                             latitude = exportModel.latitude,
                             longitude = exportModel.longitude,
+                            analysisData = exportModel.analysisData,
+                            analysisModel = exportModel.analysisModel,
+                            analysisUpdatedAt = exportModel.analysisUpdatedAt,
+                            analysisStatus = exportModel.analysisStatus,
+                            analysisError = exportModel.analysisError,
                             isOriginalImage = exportModel.isOriginalImage,
                             isPrivate = exportModel.isPrivate
                         )
@@ -218,6 +275,11 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
                                         note = exportModel.note,
                                         latitude = exportModel.latitude,
                                         longitude = exportModel.longitude,
+                                        analysisData = exportModel.analysisData,
+                                        analysisModel = exportModel.analysisModel,
+                                        analysisUpdatedAt = exportModel.analysisUpdatedAt,
+                                        analysisStatus = exportModel.analysisStatus,
+                                        analysisError = exportModel.analysisError,
                                         isOriginalImage = exportModel.isOriginalImage,
                                         isPrivate = exportModel.isPrivate
                                     )
@@ -263,6 +325,11 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
                     note = log.note,
                     latitude = log.latitude,
                     longitude = log.longitude,
+                    analysisData = log.analysisData,
+                    analysisModel = log.analysisModel,
+                    analysisUpdatedAt = log.analysisUpdatedAt,
+                    analysisStatus = log.analysisStatus,
+                    analysisError = log.analysisError,
                     isOriginalImage = log.isOriginalImage,
                     isPrivate = log.isPrivate
                 )
@@ -297,6 +364,11 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
                     note = log.note,
                     latitude = log.latitude,
                     longitude = log.longitude,
+                    analysisData = log.analysisData,
+                    analysisModel = log.analysisModel,
+                    analysisUpdatedAt = log.analysisUpdatedAt,
+                    analysisStatus = log.analysisStatus,
+                    analysisError = log.analysisError,
                     isOriginalImage = log.isOriginalImage,
                     isPrivate = log.isPrivate
                 )

@@ -13,6 +13,10 @@ data class LogEntity(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val analysisData: String? = null,
+    val analysisModel: String? = null,
+    val analysisUpdatedAt: Long? = null,
+    val analysisStatus: String? = null,
+    val analysisError: String? = null,
     val isOriginalImage: Boolean = true,
     val isPrivate: Boolean = false
 )
