@@ -12,7 +12,7 @@ Guidelines:
 - Type: Short classification. Specifically use: 'food', 'medicine', 'supplement', 'stool', or another if not fitting in those. lowercase, spaces if necessary for multi word.
 - Components: Break down and list top components of the log entry, being macros and micros, active ingredients, constituants, etc.
   Be precise, nutritionally, and medically accurate here, use your best judgement. Estimate quantities where visible or implied as accurately as possible.
-  Data Normatlization: Use FDA Nutrition Facts label conventions for food (Title Case, Singular).
+  Data Normatlization: Use FDA Nutrition Facts label conventions for food (Title Case, Singular). use kcal for energy quantities.
   For units, use SI units. Never write out the full word.
   For medicine and supplements: stick to Generic Name and 'active ingredients'. Avoid brands unless formulation is proprietary and unknown.
   Be specific with chemical names if known.

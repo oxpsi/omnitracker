@@ -87,8 +87,8 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
     }
 
     suspend fun analyzeLog(log: LogEntity, force: Boolean = false): Result<LogEntity> = withContext(Dispatchers.IO) {
-        if (log.imagePath.isBlank()) {
-            return@withContext Result.failure(IllegalArgumentException("No image available for analysis"))
+        if (log.imagePath.isBlank() && log.note.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Nothing to analyze (missing photo and note)"))
         }
 
         val latest = logDao.getLogById(log.id) ?: log
@@ -100,11 +100,12 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
             analysisStatus = AiAnalysisStatus.PENDING,
             analysisUpdatedAt = System.currentTimeMillis(),
             analysisError = null,
-            analysisModel = aiService.getActiveModelName()
+            analysisModel = aiService.getActiveModelName(context)
         )
         logDao.insertLog(pendingUpdate)
 
-        val result = aiService.analyzeLog(context, File(pendingUpdate.imagePath), pendingUpdate.note)
+        val imageFile = pendingUpdate.imagePath.takeIf { it.isNotBlank() }?.let { File(it) }
+        val result = aiService.analyzeLog(context, imageFile, pendingUpdate.note)
         val now = System.currentTimeMillis()
 
         return@withContext if (result.isSuccess) {
@@ -120,7 +121,7 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
                 analysisStatus = AiAnalysisStatus.COMPLETE,
                 analysisUpdatedAt = now,
                 analysisError = null,
-                analysisModel = aiService.getActiveModelName()
+                analysisModel = aiService.getActiveModelName(context)
             )
             logDao.insertLog(updated)
             Result.success(updated)

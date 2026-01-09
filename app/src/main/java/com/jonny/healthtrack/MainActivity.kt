@@ -185,7 +185,7 @@ fun AppContent(
             )
             repository.addLog(newLog)
             selectedDate = Instant.ofEpochMilli(newLog.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
-            if (aiEnabled && newLog.imagePath.isNotEmpty()) {
+            if (aiEnabled && (newLog.imagePath.isNotEmpty() || newLog.note.isNotBlank())) {
                 repository.analyzeLog(newLog)
             }
             // Navigate to detail after creation
@@ -377,6 +377,10 @@ fun HomeScreen(
     var showNoteDialog by remember { mutableStateOf(false) } // For pure note entry
     var showReuseNoteDialog by remember { mutableStateOf(false) }
     var reuseTemplateLog by remember { mutableStateOf<LogEntity?>(null) }
+    var showCameraNoteDialog by remember { mutableStateOf(false) }
+    var pendingCameraFile by remember { mutableStateOf<File?>(null) }
+    var pendingCameraLat by remember { mutableStateOf<Double?>(null) }
+    var pendingCameraLong by remember { mutableStateOf<Double?>(null) }
     var tempPhotoFile by remember { mutableStateOf<File?>(null) }
     var showFabMenu by remember { mutableStateOf(false) }
 
@@ -395,11 +399,15 @@ fun HomeScreen(
                 scope.launch(Dispatchers.IO) {
                     val normalized = capturedFile?.let { normalizeCapturedJpegInPlace(it) } ?: capturedFile
                     withContext(Dispatchers.Main) {
-                        onAddLog(normalized, "", lat, long, true) // Empty note, Original = true
+                        pendingCameraFile = normalized
+                        pendingCameraLat = lat
+                        pendingCameraLong = long
+                        showCameraNoteDialog = true
                     }
                 }
             }
         }
+        tempPhotoFile = null
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -492,6 +500,31 @@ fun HomeScreen(
                     showReuseNoteDialog = false
                     reuseTemplateLog = null
                 }
+            }
+        )
+    }
+
+    if (showCameraNoteDialog && pendingCameraFile != null) {
+        NoteDialog(
+            initialNote = "",
+            onDismiss = {
+                pendingCameraFile?.let { file ->
+                    try {
+                        if (file.exists()) file.delete()
+                    } catch (_: Exception) {
+                    }
+                }
+                pendingCameraFile = null
+                pendingCameraLat = null
+                pendingCameraLong = null
+                showCameraNoteDialog = false
+            },
+            onConfirm = { note ->
+                onAddLog(pendingCameraFile, note, pendingCameraLat, pendingCameraLong, true)
+                pendingCameraFile = null
+                pendingCameraLat = null
+                pendingCameraLong = null
+                showCameraNoteDialog = false
             }
         )
     }
@@ -677,7 +710,7 @@ fun DaySummaryScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = component.name,
+                                    text = component.displayName,
                                     style = MaterialTheme.typography.bodyLarge,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -716,6 +749,8 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var openAiModel by remember { mutableStateOf(AiPreferences.getOpenAiModel(context)) }
+    var openAiModelExpanded by remember { mutableStateOf(false) }
 
     // Export State
     var showExportDialog by remember { mutableStateOf(false) }
@@ -890,12 +925,53 @@ fun SettingsScreen(
                 Column(Modifier.weight(1f)) {
                     Text("Enable AI analysis", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        "Analyze new logs with Gemini 3 and store structured results.",
+                        "Analyze new logs and store structured results.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                 }
                 Switch(checked = aiEnabled, onCheckedChange = { onAiEnabledChange(it) })
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Text("OpenAI model", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Used when OPENAI_API_KEY is set (otherwise Gemini is used).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            Spacer(Modifier.height(8.dp))
+
+            ExposedDropdownMenuBox(
+                expanded = openAiModelExpanded,
+                onExpandedChange = { openAiModelExpanded = !openAiModelExpanded }
+            ) {
+                OutlinedTextField(
+                    value = openAiModel,
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(),
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = openAiModelExpanded) }
+                )
+
+                ExposedDropdownMenu(
+                    expanded = openAiModelExpanded,
+                    onDismissRequest = { openAiModelExpanded = false }
+                ) {
+                    AiPreferences.openAiModelOptions.forEach { model ->
+                        DropdownMenuItem(
+                            text = { Text(model) },
+                            onClick = {
+                                openAiModel = model
+                                AiPreferences.setOpenAiModel(context, model)
+                                openAiModelExpanded = false
+                            }
+                        )
+                    }
+                }
             }
 
             Divider(Modifier.padding(vertical = 16.dp))
@@ -1171,13 +1247,13 @@ fun DetailScreen(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Icon(
                                         Icons.Default.Refresh, 
                                         contentDescription = "Reused",
                                         tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(Modifier.width(4.dp))
                                     Text("Reused", color = Color.White, style = MaterialTheme.typography.labelSmall)
@@ -1307,11 +1383,11 @@ fun DetailScreen(
                         Spacer(Modifier.height(8.dp))
 
                         when {
-                            log.imagePath.isEmpty() -> {
-                                Text("AI analysis requires a photo log.", style = MaterialTheme.typography.bodyMedium)
-                            }
                             !aiEnabled -> {
                                 Text("Enable AI analysis in Settings to use this feature.", style = MaterialTheme.typography.bodyMedium)
+                            }
+                            log.imagePath.isEmpty() && log.note.isBlank() -> {
+                                Text("Add a note or photo to analyze.", style = MaterialTheme.typography.bodyMedium)
                             }
                             log.analysisStatus == AiAnalysisStatus.ERROR -> {
                                 Text(
@@ -1364,7 +1440,7 @@ fun DetailScreen(
                         Button(
                             onClick = { onAnalyze(log) },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = aiEnabled && !isAnalyzing && log.imagePath.isNotEmpty()
+                            enabled = aiEnabled && !isAnalyzing && (log.imagePath.isNotEmpty() || log.note.isNotBlank())
                         ) {
                             Icon(Icons.Default.Refresh, null)
                             Spacer(Modifier.width(8.dp))
@@ -1506,13 +1582,13 @@ fun LogItem(log: LogEntity, onClick: () -> Unit) {
                         Box(
                             modifier = Modifier
                                 .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(topStart = 4.dp))
-                                .padding(2.dp)
+                                .padding(4.dp)
                         ) {
                             Icon(
                                 Icons.Default.Refresh, 
                                 null, 
                                 tint = Color.White, 
-                                modifier = Modifier.size(12.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
@@ -1564,25 +1640,28 @@ fun DateSelector(selectedDate: LocalDate, onDateSelected: (LocalDate) -> Unit) {
             val isSelected = date == selectedDate
             Card(
                 onClick = { onDateSelected(date) },
+                modifier = Modifier.width(64.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                 ),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
                         text = date.format(DateTimeFormatter.ofPattern("EEE")),
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (isSelected) Color.White else Color.Black
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
                         text = date.dayOfMonth.toString(),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (isSelected) Color.White else Color.Black
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

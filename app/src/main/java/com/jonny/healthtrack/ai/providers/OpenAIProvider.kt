@@ -15,16 +15,20 @@ import java.util.Locale
 
 class OpenAIProvider(
     private val apiKey: String = BuildConfig.OPENAI_API_KEY,
-    private val model: String = BuildConfig.OPENAI_MODEL
+    private val model: String = "gpt-4.1"
 ) : AiProvider {
 
-    override suspend fun analyzeLog(imageFile: File, note: String, userId: String): Result<String> = withContext(Dispatchers.IO) {
+    override suspend fun analyzeLog(imageFile: File?, note: String, userId: String): Result<String> = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) return@withContext Result.failure(IllegalStateException("Missing OpenAI API key"))
-        if (!imageFile.exists()) return@withContext Result.failure(IllegalArgumentException("Image file not found"))
 
-        val imageBytes = imageFile.readBytes()
-        val base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
-        val mimeType = guessMimeType(imageFile)
+        val base64Image = if (imageFile != null) {
+            if (!imageFile.exists()) return@withContext Result.failure(IllegalArgumentException("Image file not found"))
+            val imageBytes = imageFile.readBytes()
+            Base64.encodeToString(imageBytes, Base64.NO_WRAP)
+        } else {
+            null
+        }
+        val mimeType = if (imageFile != null) guessMimeType(imageFile) else null
 
         val requestBody = buildRequestBody(base64Image, mimeType, note, userId)
         val url = URL("https://api.openai.com/v1/chat/completions")
@@ -63,7 +67,7 @@ class OpenAIProvider(
         }
     }
 
-    private fun buildRequestBody(base64Image: String, mimeType: String, note: String, userId: String): String {
+    private fun buildRequestBody(base64Image: String?, mimeType: String?, note: String, userId: String): String {
         val prompt = AiPrompts.getAnalysisPrompt(note)
         
         // Use shared schema
@@ -75,6 +79,20 @@ class OpenAIProvider(
             "strict" to true
         )
 
+        val contentParts = buildList {
+            add(mapOf("type" to "text", "text" to prompt))
+            if (!base64Image.isNullOrBlank() && !mimeType.isNullOrBlank()) {
+                add(
+                    mapOf(
+                        "type" to "image_url",
+                        "image_url" to mapOf(
+                            "url" to "data:$mimeType;base64,$base64Image"
+                        )
+                    )
+                )
+            }
+        }
+
         val request = mapOf(
             "model" to model,
             "user" to userId,
@@ -85,15 +103,7 @@ class OpenAIProvider(
                 ),
                 mapOf(
                     "role" to "user",
-                    "content" to listOf(
-                        mapOf("type" to "text", "text" to prompt),
-                        mapOf(
-                            "type" to "image_url",
-                            "image_url" to mapOf(
-                                "url" to "data:$mimeType;base64,$base64Image"
-                            )
-                        )
-                    )
+                    "content" to contentParts
                 )
             ),
             "response_format" to mapOf(

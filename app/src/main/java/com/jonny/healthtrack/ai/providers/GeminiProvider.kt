@@ -17,13 +17,17 @@ class GeminiProvider(
     private val model: String = BuildConfig.GEMINI_MODEL
 ) : AiProvider {
 
-    override suspend fun analyzeLog(imageFile: File, note: String, userId: String): Result<String> = withContext(Dispatchers.IO) {
+    override suspend fun analyzeLog(imageFile: File?, note: String, userId: String): Result<String> = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) return@withContext Result.failure(IllegalStateException("Missing Gemini API key"))
-        if (!imageFile.exists()) return@withContext Result.failure(IllegalArgumentException("Image file not found"))
 
-        val imageBytes = imageFile.readBytes()
-        val base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
-        val mimeType = guessMimeType(imageFile)
+        val base64Image = if (imageFile != null) {
+            if (!imageFile.exists()) return@withContext Result.failure(IllegalArgumentException("Image file not found"))
+            val imageBytes = imageFile.readBytes()
+            Base64.encodeToString(imageBytes, Base64.NO_WRAP)
+        } else {
+            null
+        }
+        val mimeType = if (imageFile != null) guessMimeType(imageFile) else null
 
         val requestBody = buildRequestBody(base64Image, mimeType, note)
         val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
@@ -62,20 +66,27 @@ class GeminiProvider(
         }
     }
 
-    private fun buildRequestBody(base64Image: String, mimeType: String, note: String): String {
+    private fun buildRequestBody(base64Image: String?, mimeType: String?, note: String): String {
         val prompt = AiPrompts.getAnalysisPrompt(note)
+
+        val parts = buildList {
+            add(mapOf("text" to prompt))
+            if (!base64Image.isNullOrBlank() && !mimeType.isNullOrBlank()) {
+                add(
+                    mapOf(
+                        "inlineData" to mapOf(
+                            "mimeType" to mimeType,
+                            "data" to base64Image
+                        )
+                    )
+                )
+            }
+        }
+
         val request = mapOf(
             "contents" to listOf(
                 mapOf(
-                    "parts" to listOf(
-                        mapOf("text" to prompt),
-                        mapOf(
-                            "inlineData" to mapOf(
-                                "mimeType" to mimeType,
-                                "data" to base64Image
-                            )
-                        )
-                    )
+                    "parts" to parts
                 )
             ),
             "generationConfig" to mapOf(

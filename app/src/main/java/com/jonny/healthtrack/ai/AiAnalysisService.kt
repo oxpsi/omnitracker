@@ -13,30 +13,29 @@ import java.io.File
 class AiAnalysisService(
     private val geminiApiKey: String = BuildConfig.GEMINI_API_KEY,
     private val geminiModel: String = BuildConfig.GEMINI_MODEL,
-    private val openAiApiKey: String = BuildConfig.OPENAI_API_KEY,
-    private val openAiModel: String = BuildConfig.OPENAI_MODEL
+    private val openAiApiKey: String = BuildConfig.OPENAI_API_KEY
 ) {
 
-    private fun getProvider(): AiProvider {
+    private fun getProvider(context: Context): AiProvider {
         // Simple strategy: Prefer OpenAI if key is present, otherwise fallback to Gemini
         return if (openAiApiKey.isNotBlank()) {
-            OpenAIProvider(openAiApiKey, openAiModel)
+            OpenAIProvider(openAiApiKey, AiPreferences.getOpenAiModel(context))
         } else {
             GeminiProvider(geminiApiKey, geminiModel)
         }
     }
 
-    suspend fun analyzeLog(context: Context, imageFile: File, note: String): Result<String> = withContext(Dispatchers.IO) {
-        val provider = getProvider()
+    suspend fun analyzeLog(context: Context, imageFile: File?, note: String): Result<String> = withContext(Dispatchers.IO) {
+        val provider = getProvider(context)
         val userId = UserPreferences.getOrCreateUserId(context)
         
         provider.analyzeLog(imageFile, note, userId)
     }
     
     // Helper to expose the active model name to the repository
-    fun getActiveModelName(): String {
+    fun getActiveModelName(context: Context): String {
         return if (openAiApiKey.isNotBlank()) {
-            "OpenAI: $openAiModel"
+            "OpenAI: ${AiPreferences.getOpenAiModel(context)}"
         }
         else {
             "Gemini: $geminiModel"

@@ -6,10 +6,50 @@ import com.jonny.healthtrack.data.LogEntity
 import java.util.Locale
 
 data class AggregatedComponent(
-    val name: String,
+    val keyName: String,
+    val displayName: String,
     val unit: String?,
     val quantity: Double
 )
+
+private val preferredComponentOrder: List<String> = listOf(
+    "energy",
+    "protein",
+    "carbohydrate",
+    "total fat",
+    "saturated fat",
+    "dietary fiber",
+    "sugar",
+    "sodium",
+    "potassium",
+    "cholesterol"
+)
+
+private val preferredComponentDisplayNames: Map<String, String> = mapOf(
+    "energy" to "Energy",
+    "protein" to "Protein",
+    "carbohydrate" to "Carbohydrate",
+    "total fat" to "Total Fat",
+    "saturated fat" to "Saturated Fat",
+    "dietary fiber" to "Dietary Fiber",
+    "sugar" to "Sugar",
+    "sodium" to "Sodium",
+    "potassium" to "Potassium",
+    "cholesterol" to "Cholesterol"
+)
+
+private fun String.toTitleCaseWords(): String {
+    return split(" ")
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { token ->
+            token.split("-")
+                .filter { it.isNotBlank() }
+                .joinToString("-") { part ->
+                    if (part.length == 1) part.uppercase(Locale.US)
+                    else part.take(1).uppercase(Locale.US) + part.drop(1).lowercase(Locale.US)
+                }
+        }
+}
 
 fun aggregateFoodComponents(logs: List<LogEntity>): List<AggregatedComponent> {
     if (logs.isEmpty()) return emptyList()
@@ -32,7 +72,20 @@ fun aggregateFoodComponents(logs: List<LogEntity>): List<AggregatedComponent> {
         }
     }
 
+    val rank = preferredComponentOrder.withIndex().associate { it.value to it.index }
     return totals
-        .map { (key, quantity) -> AggregatedComponent(name = key.first, unit = key.second, quantity = quantity) }
-        .sortedWith(compareBy<AggregatedComponent> { it.name }.thenBy { it.unit ?: "" })
+        .map { (key, quantity) ->
+            val keyName = key.first
+            AggregatedComponent(
+                keyName = keyName,
+                displayName = preferredComponentDisplayNames[keyName] ?: keyName.toTitleCaseWords(),
+                unit = key.second,
+                quantity = quantity
+            )
+        }
+        .sortedWith(
+            compareBy<AggregatedComponent> { rank[it.keyName] ?: Int.MAX_VALUE }
+                .thenBy { it.keyName }
+                .thenBy { it.unit ?: "" }
+        )
 }
