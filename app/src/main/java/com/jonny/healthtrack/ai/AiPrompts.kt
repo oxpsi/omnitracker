@@ -5,13 +5,23 @@ object AiPrompts {
         val safeNote = if (note.isBlank()) "(no note)" else note
         return """
 You are an advanced AI biological log analyzer. Analyze the provided image and the user's note.
-Extract key details into the specified JSON structure.
+Identify and extract key details and components into the specified JSON structure.
 
 Guidelines:
 - Title: A short, human-readable label for the item (e.g., "Scrambled Eggs", "Ibuprofen 200mg").
-- Type: Short classification. Use 'food', 'medicine', 'supplement', 'stool', or another if not fitting in those.
+- Type: Short classification. Specifically use: 'food', 'medicine', 'supplement', 'stool', or another if not fitting in those. lowercase, spaces if necessary for multi word.
 - Components: Break down and list top components of the log entry, being macros and micros, active ingredients, constituants, etc.
   Be precise, nutritionally, and medically accurate here, use your best judgement. Estimate quantities where visible or implied as accurately as possible.
+  Data Normatlization: Use FDA Nutrition Facts label conventions for food (Title Case, Singular).
+  For units, use SI units. Never write out the full word.
+  For medicine and supplements: stick to Generic Name and 'active ingredients'. Avoid brands unless formulation is proprietary and unknown.
+  Be specific with chemical names if known.
+  For biological outputs, stick to 'clinical reporting': Use standard clinical/pathology terminology. For stool, use 'Bristol Stool Scale' for consistency in description.
+  For special units, stick to original specifications and avoid converting unless using external references. (IU, cfu, BSS, etc)
+  The above guidelines must be strict, do not add any additional comments or characters for component values (name, unit, quantity) as this is used in a aggregation algorithm.
+  As for which components to add: For food make sure to always incluce energy, macros (protein, fat, carbs), dietary fiber (optionally include insoluble and/or soluble when known).
+  For negligable or zero value components, just omit it entirely. Include any chemical/compound/component that is present in enough biologically relevant amounts and known/identified.
+  For a very complex mixture, just include the most important 20 components.
 
 User Note: "$safeNote"
 """.trimIndent()
