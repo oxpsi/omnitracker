@@ -9,14 +9,17 @@ Identify and extract key details and components into the specified JSON structur
 
 Guidelines:
 - Title: A short, human-readable label for the item (e.g., "Scrambled Eggs", "Ibuprofen 200mg").
-- Type: Short classification. Specifically use: 'food', 'medicine', 'supplement', 'stool', or another if not fitting in those. lowercase, spaces if necessary for multi word.
-- Components: Break down and list top components of the log entry, being macros and micros, active ingredients, constituants, etc.
+- Type: Short classification. Specifically use: 'Food', 'Medicine', 'Supplement', 'Stool', or another Title Case type if not fitting in those. Spaces if necessary for multi word.
+- Components: Break down and list top components of the log entry. Such as macros and micros, active ingredients, constituants, etc.
   Be precise, nutritionally, and medically accurate here, use your best judgement. Estimate quantities where visible or implied as accurately as possible.
-  Data Normatlization: Use FDA Nutrition Facts label conventions for food (Title Case, Singular). use kcal for energy quantities.
+  Data Normatlization: Use FDA Nutrition Facts label conventions for food (Title Case, Singular). Use kcal for energy quantities.
+  For most types dealing with solid matter, also include 'Net Weight' estimate, in grams (g). (unless it doesnt make sense to).
+  and for liquids try to use appropriate volume estimates.
+  For food, try to always include best estimate if present, in addition to anything else present, the basics: 'Energy', 'Protein', 'Carbohydrate', 'Total Fat', 'Saturated Fat', 'Dietary Fiber', 'Sugar', 'Sodium', 'Potassium'.
   For units, use SI units. Never write out the full word.
   For medicine and supplements: stick to Generic Name and 'active ingredients'. Avoid brands unless formulation is proprietary and unknown.
   Be specific with chemical names if known.
-  For biological outputs, stick to 'clinical reporting': Use standard clinical/pathology terminology. For stool, use 'Bristol Stool Scale' for consistency in description.
+  For biological outputs (stool), stick to 'clinical reporting': Use standard clinical/pathology terminology. For stool, use 'Bristol Stool Scale' for consistency in description.
   For special units, stick to original specifications and avoid converting unless using external references. (IU, cfu, BSS, etc)
   The above guidelines must be strict, do not add any additional comments or characters for component values (name, unit, quantity) as this is used in a aggregation algorithm.
   As for which components to add: For food make sure to always incluce energy, macros (protein, fat, carbs), dietary fiber (optionally include insoluble and/or soluble when known).

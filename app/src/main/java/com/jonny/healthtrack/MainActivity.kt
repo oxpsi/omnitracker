@@ -20,6 +20,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -27,26 +28,44 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.BakeryDining
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Fastfood
+import androidx.compose.material.icons.filled.Grass
+import androidx.compose.material.icons.filled.Icecream
+import androidx.compose.material.icons.filled.Lens
+import androidx.compose.material.icons.filled.LocalCafe
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.MonitorWeight
+import androidx.compose.material.icons.filled.QuestionMark
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SetMeal
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.Summarize
+import androidx.compose.material.icons.filled.TripOrigin
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -74,8 +93,10 @@ import com.jonny.healthtrack.ai.latestAiAnalysis
 import com.jonny.healthtrack.data.AppDatabase
 import com.jonny.healthtrack.data.LogEntity
 import com.jonny.healthtrack.data.LogRepository
-import com.jonny.healthtrack.util.normalizeCapturedJpegInPlace
 import com.jonny.healthtrack.util.aggregateFoodComponents
+import com.jonny.healthtrack.util.normalizeCapturedJpegInPlace
+import com.jonny.healthtrack.util.AppThemeColor
+import com.jonny.healthtrack.util.ThemePreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -115,11 +136,20 @@ class MainActivity : ComponentActivity() {
             val systemDark = isSystemInDarkTheme()
             var isDarkTheme by remember { mutableStateOf(systemDark) }
 
-            HealthTrackTheme(darkTheme = isDarkTheme) {
+            // Theme Color State
+            val context = LocalContext.current
+            var themeColor by remember { mutableStateOf(ThemePreferences.getThemeColor(context)) }
+
+            HealthTrackTheme(darkTheme = isDarkTheme, themeColor = themeColor) {
                 AppContent(
                     repository = repository,
                     isDarkTheme = isDarkTheme,
-                    onToggleTheme = { isDarkTheme = !isDarkTheme }
+                    onToggleTheme = { isDarkTheme = !isDarkTheme },
+                    themeColor = themeColor,
+                    onThemeColorChange = { newColor ->
+                        themeColor = newColor
+                        ThemePreferences.setThemeColor(context, newColor)
+                    }
                 )
             }
         }
@@ -129,20 +159,88 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun HealthTrackTheme(
     darkTheme: Boolean,
+    themeColor: AppThemeColor,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) {
-        darkColorScheme(
-            primary = Color(0xFF8BC34A),
-            secondary = Color(0xFFAED581),
-            tertiary = Color(0xFFDCEDC8)
-        )
-    } else {
-        lightColorScheme(
-            primary = Color(0xFF4CAF50),
-            secondary = Color(0xFF8BC34A),
-            tertiary = Color(0xFFCDDC39)
-        )
+    val colorScheme = when (themeColor) {
+        AppThemeColor.Green -> if (darkTheme) {
+            darkColorScheme(
+                primary = Color(0xFF8BC34A),
+                secondary = Color(0xFFAED581),
+                tertiary = Color(0xFFDCEDC8)
+            )
+        } else {
+            lightColorScheme(
+                primary = Color(0xFF4CAF50),
+                secondary = Color(0xFF8BC34A),
+                tertiary = Color(0xFFCDDC39)
+            )
+        }
+        AppThemeColor.Blue -> if (darkTheme) {
+            darkColorScheme(
+                primary = Color(0xFF64B5F6),
+                secondary = Color(0xFF4FC3F7),
+                tertiary = Color(0xFFB3E5FC)
+            )
+        } else {
+            lightColorScheme(
+                primary = Color(0xFF2196F3),
+                secondary = Color(0xFF03A9F4),
+                tertiary = Color(0xFFB3E5FC)
+            )
+        }
+        AppThemeColor.Red -> if (darkTheme) {
+            darkColorScheme(
+                primary = Color(0xFFE57373),
+                secondary = Color(0xFFFF8A80),
+                tertiary = Color(0xFFFFCDD2)
+            )
+        } else {
+            lightColorScheme(
+                primary = Color(0xFFF44336),
+                secondary = Color(0xFFE57373),
+                tertiary = Color(0xFFFFCDD2)
+            )
+        }
+        AppThemeColor.Purple -> if (darkTheme) {
+            darkColorScheme(
+                primary = Color(0xFFBA68C8),
+                secondary = Color(0xFFCE93D8),
+                tertiary = Color(0xFFE1BEE7)
+            )
+        } else {
+            lightColorScheme(
+                primary = Color(0xFF9C27B0),
+                secondary = Color(0xFFBA68C8),
+                tertiary = Color(0xFFE1BEE7)
+            )
+        }
+        AppThemeColor.Orange -> if (darkTheme) {
+            darkColorScheme(
+                primary = Color(0xFFFFB74D),
+                secondary = Color(0xFFFFCC80),
+                tertiary = Color(0xFFFFE0B2)
+            )
+        } else {
+            lightColorScheme(
+                primary = Color(0xFFFF9800),
+                secondary = Color(0xFFFFB74D),
+                tertiary = Color(0xFFFFE0B2)
+            )
+        }
+        AppThemeColor.Teal -> if (darkTheme) {
+            darkColorScheme(
+                primary = Color(0xFF4DB6AC),
+                secondary = Color(0xFF80CBC4),
+                tertiary = Color(0xFFB2DFDB)
+            )
+        } else {
+            lightColorScheme(
+                primary = Color(0xFF009688),
+                secondary = Color(0xFF26A69A),
+                tertiary = Color(0xFFB2DFDB)
+            )
+        }
     }
 
     MaterialTheme(
@@ -155,7 +253,9 @@ fun HealthTrackTheme(
 fun AppContent(
     repository: LogRepository,
     isDarkTheme: Boolean,
-    onToggleTheme: () -> Unit
+    onToggleTheme: () -> Unit,
+    themeColor: AppThemeColor,
+    onThemeColorChange: (AppThemeColor) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -173,7 +273,7 @@ fun AppContent(
         }
     }
 
-    fun createLog(file: File?, note: String, lat: Double?, long: Double?, isOriginal: Boolean) {
+    fun createLog(file: File?, note: String, lat: Double?, long: Double?, isOriginal: Boolean, analysisSource: LogEntity? = null) {
         scope.launch {
             val newLog = LogEntity(
                 timestamp = System.currentTimeMillis(),
@@ -181,11 +281,20 @@ fun AppContent(
                 note = note,
                 latitude = lat,
                 longitude = long,
-                isOriginalImage = isOriginal
+                isOriginalImage = isOriginal,
+                analysisResults = analysisSource?.analysisResults,
+                analysisStatus = analysisSource?.analysisStatus,
+                analysisModel = analysisSource?.analysisModel,
+                analysisUpdatedAt = if (analysisSource != null) System.currentTimeMillis() else null,
+                analysisError = analysisSource?.analysisError
             )
             repository.addLog(newLog)
             selectedDate = Instant.ofEpochMilli(newLog.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
-            if (aiEnabled && (newLog.imagePath.isNotEmpty() || newLog.note.isNotBlank())) {
+            
+            // Analyze only if we didn't copy analysis, OR if the copied analysis was not complete/successful and we want to try again (though usually we just copy state)
+            // Actually, if we reuse, we assume we want that state. If it was pending/error, maybe we want to retry?
+            // User request: "copy over instead of doing a new analysis". Implies exact copy.
+            if (analysisSource == null && aiEnabled && (newLog.imagePath.isNotEmpty() || newLog.note.isNotBlank())) {
                 repository.analyzeLog(newLog)
             }
             // Navigate to detail after creation
@@ -221,8 +330,8 @@ fun AppContent(
                         logs = logs,
                         selectedDate = selectedDate,
                         onSelectedDateChange = { selectedDate = it },
-                        onAddLog = { file, note, lat, long, isOriginal ->
-                            createLog(file, note, lat, long, isOriginal)
+                        onAddLog = { file, note, lat, long, isOriginal, template ->
+                            createLog(file, note, lat, long, isOriginal, template)
                         },
                         onNavigateToSettings = { toggleSettingsPane() },
                         onNavigateToDetail = { logId -> currentScreen = Screen.Detail(logId) },
@@ -267,6 +376,7 @@ fun AppContent(
                                     selectedDate = selectedDate,
                                     dayLogs = dayLogs,
                                     onBack = { currentScreen = Screen.Home },
+                                    onNavigateToDetail = { logId -> currentScreen = Screen.Detail(logId) },
                                     showBackButton = false,
                                     showCloseButton = true
                                 )
@@ -274,6 +384,8 @@ fun AppContent(
                             Screen.Settings -> SettingsScreen(
                                 isDarkTheme = isDarkTheme,
                                 onToggleTheme = onToggleTheme,
+                                themeColor = themeColor,
+                                onThemeColorChange = onThemeColorChange,
                                 aiEnabled = aiEnabled,
                                 onAiEnabledChange = { updateAiEnabled(it) },
                                 onBack = { currentScreen = Screen.Home },
@@ -296,8 +408,8 @@ fun AppContent(
                     logs = logs,
                     selectedDate = selectedDate,
                     onSelectedDateChange = { selectedDate = it },
-                    onAddLog = { file, note, lat, long, isOriginal ->
-                        createLog(file, note, lat, long, isOriginal)
+                    onAddLog = { file, note, lat, long, isOriginal, template ->
+                        createLog(file, note, lat, long, isOriginal, template)
                     },
                     onNavigateToSettings = { currentScreen = Screen.Settings },
                     onNavigateToDetail = { logId -> currentScreen = Screen.Detail(logId) },
@@ -307,6 +419,8 @@ fun AppContent(
                 Screen.Settings -> SettingsScreen(
                     isDarkTheme = isDarkTheme,
                     onToggleTheme = onToggleTheme,
+                    themeColor = themeColor,
+                    onThemeColorChange = onThemeColorChange,
                     aiEnabled = aiEnabled,
                     onAiEnabledChange = { updateAiEnabled(it) },
                     onBack = { currentScreen = Screen.Home },
@@ -323,6 +437,7 @@ fun AppContent(
                         selectedDate = selectedDate,
                         dayLogs = dayLogs,
                         onBack = { currentScreen = Screen.Home },
+                        onNavigateToDetail = { logId -> currentScreen = Screen.Detail(logId) },
                         showBackButton = true,
                         showCloseButton = false
                     )
@@ -365,7 +480,7 @@ fun HomeScreen(
     logs: List<LogEntity>,
     selectedDate: LocalDate,
     onSelectedDateChange: (LocalDate) -> Unit,
-    onAddLog: (File?, String, Double?, Double?, Boolean) -> Unit,
+    onAddLog: (File?, String, Double?, Double?, Boolean, LogEntity?) -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToDetail: (String) -> Unit,
     onNavigateToDaySummary: () -> Unit,
@@ -377,11 +492,11 @@ fun HomeScreen(
     var showNoteDialog by remember { mutableStateOf(false) } // For pure note entry
     var showReuseNoteDialog by remember { mutableStateOf(false) }
     var reuseTemplateLog by remember { mutableStateOf<LogEntity?>(null) }
-    var showCameraNoteDialog by remember { mutableStateOf(false) }
-    var pendingCameraFile by remember { mutableStateOf<File?>(null) }
-    var pendingCameraLat by remember { mutableStateOf<Double?>(null) }
-    var pendingCameraLong by remember { mutableStateOf<Double?>(null) }
-    var tempPhotoFile by remember { mutableStateOf<File?>(null) }
+    var showCameraNoteDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingCameraPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingCameraLat by rememberSaveable { mutableStateOf<Double?>(null) }
+    var pendingCameraLong by rememberSaveable { mutableStateOf<Double?>(null) }
+    var tempPhotoPath by rememberSaveable { mutableStateOf<String?>(null) }
     var showFabMenu by remember { mutableStateOf(false) }
 
     val filteredLogs = logs.filter {
@@ -393,13 +508,14 @@ fun HomeScreen(
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success && tempPhotoFile != null) {
+        val tempPath = tempPhotoPath
+        if (success && !tempPath.isNullOrBlank()) {
+            val capturedFile = File(tempPath!!)
             getLastLocation(context) { lat, long ->
-                val capturedFile = tempPhotoFile
                 scope.launch(Dispatchers.IO) {
-                    val normalized = capturedFile?.let { normalizeCapturedJpegInPlace(it) } ?: capturedFile
+                    val normalized = normalizeCapturedJpegInPlace(capturedFile)
                     withContext(Dispatchers.Main) {
-                        pendingCameraFile = normalized
+                        pendingCameraPath = normalized.absolutePath
                         pendingCameraLat = lat
                         pendingCameraLong = long
                         showCameraNoteDialog = true
@@ -407,7 +523,7 @@ fun HomeScreen(
                 }
             }
         }
-        tempPhotoFile = null
+        tempPhotoPath = null
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -416,7 +532,7 @@ fun HomeScreen(
         val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
         if (cameraGranted) {
             val photoFile = createImageFile(context)
-            tempPhotoFile = photoFile
+            tempPhotoPath = photoFile.absolutePath
             val uri = FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
@@ -495,7 +611,8 @@ fun HomeScreen(
                         note,
                         lat,
                         long,
-                        false // Original = false (Reuse)
+                        false, // Original = false (Reuse)
+                        if (note == template.note) template else null // Reuse analysis if note unchanged
                     )
                     showReuseNoteDialog = false
                     reuseTemplateLog = null
@@ -504,24 +621,25 @@ fun HomeScreen(
         )
     }
 
-    if (showCameraNoteDialog && pendingCameraFile != null) {
+    if (showCameraNoteDialog && pendingCameraPath != null) {
+        val pendingFile = File(pendingCameraPath!!)
         NoteDialog(
             initialNote = "",
             onDismiss = {
-                pendingCameraFile?.let { file ->
+                pendingFile.let { file ->
                     try {
                         if (file.exists()) file.delete()
                     } catch (_: Exception) {
                     }
                 }
-                pendingCameraFile = null
+                pendingCameraPath = null
                 pendingCameraLat = null
                 pendingCameraLong = null
                 showCameraNoteDialog = false
             },
             onConfirm = { note ->
-                onAddLog(pendingCameraFile, note, pendingCameraLat, pendingCameraLong, true)
-                pendingCameraFile = null
+                onAddLog(pendingFile, note, pendingCameraLat, pendingCameraLong, true, null)
+                pendingCameraPath = null
                 pendingCameraLat = null
                 pendingCameraLong = null
                 showCameraNoteDialog = false
@@ -536,7 +654,7 @@ fun HomeScreen(
             onDismiss = { showNoteDialog = false },
             onConfirm = { note ->
                 getLastLocation(context) { lat, long ->
-                    onAddLog(null, note, lat, long, true) // No image
+                    onAddLog(null, note, lat, long, true, null) // No image
                     showNoteDialog = false
                 }
             }
@@ -646,10 +764,50 @@ fun DaySummaryScreen(
     selectedDate: LocalDate,
     dayLogs: List<LogEntity>,
     onBack: () -> Unit,
+    onNavigateToDetail: (String) -> Unit,
     showBackButton: Boolean,
     showCloseButton: Boolean
 ) {
-    val components = remember(dayLogs) { aggregateFoodComponents(dayLogs) }
+    fun titleCaseType(value: String): String {
+        return value.split(" ")
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { word ->
+                word.split("-")
+                    .filter { it.isNotBlank() }
+                    .joinToString("-") { part ->
+                        if (part.length == 1) part.uppercase(Locale.US)
+                        else part.take(1).uppercase(Locale.US) + part.drop(1).lowercase(Locale.US)
+                    }
+            }
+    }
+
+    val typeOptions = remember(dayLogs) {
+        dayLogs.mapNotNull { log ->
+            latestAiAnalysis(log.analysisResults)?.type?.trim()?.lowercase(Locale.US)
+        }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+    }
+    var selectedType by rememberSaveable { mutableStateOf<String?>(null) }
+    var typeMenuExpanded by remember { mutableStateOf(false) }
+    var expandedComponentKey by rememberSaveable { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(typeOptions) {
+        if (typeOptions.isNotEmpty()) {
+            selectedType = when {
+                selectedType in typeOptions -> selectedType
+                "food" in typeOptions -> "food"
+                else -> typeOptions.first()
+            }
+        } else {
+            selectedType = null
+        }
+    }
+
+    val components = remember(dayLogs, selectedType) {
+        if (selectedType == "food") aggregateFoodComponents(dayLogs) else emptyList()
+    }
 
     fun formatQuantity(value: Double): String {
         val isWhole = value % 1.0 == 0.0
@@ -682,51 +840,207 @@ fun DaySummaryScreen(
             )
         }
     ) { padding ->
-        if (components.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .padding(padding)
-                    .fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("No food components found for this day.", color = Color.Gray)
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(components) { component ->
-                    Card(
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                        shape = RoundedCornerShape(12.dp)
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Type", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                Spacer(Modifier.height(6.dp))
+                ExposedDropdownMenuBox(
+                    expanded = typeMenuExpanded,
+                    onExpandedChange = { if (typeOptions.isNotEmpty()) typeMenuExpanded = !typeMenuExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = selectedType?.let { titleCaseType(it) } ?: "No types",
+                        onValueChange = {},
+                        readOnly = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeMenuExpanded) }
+                    )
+
+                    ExposedDropdownMenu(
+                        expanded = typeMenuExpanded,
+                        onDismissRequest = { typeMenuExpanded = false }
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        typeOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(titleCaseType(option)) },
+                                onClick = {
+                                    selectedType = option
+                                    typeMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (components.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val emptyText = if (selectedType == "food") {
+                        "No food components found for this day."
+                    } else {
+                        val displayType = selectedType?.let { titleCaseType(it) } ?: "Type"
+                        "Summary for $displayType isn't available yet."
+                    }
+                    Text(emptyText, color = Color.Gray)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(components) { component ->
+                        val isExpanded = expandedComponentKey == component.keyName
+                        Card(
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.clickable { 
+                                expandedComponentKey = if (isExpanded) null else component.keyName
+                            }
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = component.displayName,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                component.unit?.let { unit ->
+                            Column {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val icon = when (component.keyName) {
+                                        "energy" -> Icons.Default.LocalFireDepartment
+                                        "net weight" -> Icons.Default.MonitorWeight
+                                        "protein" -> Icons.Default.SetMeal
+                                        "carbohydrate" -> Icons.Default.BakeryDining
+                                        "total fat" -> Icons.Default.TripOrigin
+                                        "saturated fat" -> Icons.Default.Lens
+                                        "dietary fiber" -> Icons.Default.Grass
+                                        "sugar" -> Icons.Default.Icecream
+                                        "sodium" -> Icons.Default.Waves
+                                        "potassium" -> Icons.Default.Bolt
+                                        "cholesterol" -> Icons.Default.MonitorHeart
+                                        "caffeine" -> Icons.Default.LocalCafe
+                                        else -> Icons.Default.QuestionMark
+                                    }
+                                    
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(Modifier.width(16.dp))
+                                    
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = component.displayName,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        val sourceCount = component.sources.size
+                                        Text(
+                                            text = "$sourceCount source${if (sourceCount != 1) "s" else ""}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.Gray
+                                        )
+                                    }
                                     Text(
-                                        text = unit,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color.Gray
+                                        text = "${formatQuantity(component.quantity)} ${component.unit ?: ""}".trim(),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
+                                
+                                if (isExpanded) {
+                                    HorizontalDivider()
+                                    Column(Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                                        component.sources.sortedByDescending { it.quantity }.forEach { source ->
+                                            val log = dayLogs.find { it.id == source.logId }
+                                            if (log != null) {
+                                                val analysisTitle = latestAiAnalysis(log.analysisResults)?.title?.trim()
+                                                val displayText = analysisTitle?.takeIf { it.isNotBlank() }
+                                                    ?: log.note.takeIf { it.isNotBlank() }
+                                                    ?: "No details"
+                                                
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable { onNavigateToDetail(log.id) }
+                                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    // Thumbnail
+                                                    if (log.imagePath.isEmpty()) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(32.dp)
+                                                                .background(MaterialTheme.colorScheme.secondary, RoundedCornerShape(4.dp)),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Text("T", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                        }
+                                                    } else {
+                                                        Box(contentAlignment = Alignment.BottomEnd) {
+                                                            AsyncImage(
+                                                                model = ImageRequest.Builder(LocalContext.current)
+                                                                    .data(File(log.imagePath))
+                                                                    .crossfade(true)
+                                                                    .build(),
+                                                                contentDescription = null,
+                                                                modifier = Modifier
+                                                                    .size(32.dp)
+                                                                    .clip(RoundedCornerShape(4.dp)),
+                                                                contentScale = ContentScale.Crop
+                                                            )
+                                                            if (!log.isOriginalImage) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(topStart = 2.dp))
+                                                                        .padding(1.dp)
+                                                                ) {
+                                                                    Icon(
+                                                                        Icons.Default.Refresh, 
+                                                                        null, 
+                                                                        tint = Color.White, 
+                                                                        modifier = Modifier.size(8.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    Spacer(Modifier.width(12.dp))
+                                                    
+                                                    Column(Modifier.weight(1f)) {
+                                                        Text(displayText, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        Text(
+                                                            SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(log.timestamp)),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = Color.Gray
+                                                        )
+                                                    }
+                                                    
+                                                    Text(
+                                                        text = "${formatQuantity(source.quantity)} ${component.unit ?: ""}".trim(),
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                            Text(
-                                text = formatQuantity(component.quantity),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
                         }
                     }
                 }
@@ -740,6 +1054,8 @@ fun DaySummaryScreen(
 fun SettingsScreen(
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit,
+    themeColor: AppThemeColor,
+    onThemeColorChange: (AppThemeColor) -> Unit,
     aiEnabled: Boolean,
     onAiEnabledChange: (Boolean) -> Unit,
     onBack: () -> Unit,
@@ -913,6 +1229,40 @@ fun SettingsScreen(
                 Text("Dark Theme", style = MaterialTheme.typography.bodyLarge)
                 Switch(checked = isDarkTheme, onCheckedChange = { onToggleTheme() })
             }
+
+            Spacer(Modifier.height(16.dp))
+            Text("Color Theme", style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(12.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                AppThemeColor.values().forEach { color ->
+                    val colorValue = when (color) {
+                         AppThemeColor.Green -> Color(0xFF4CAF50)
+                         AppThemeColor.Blue -> Color(0xFF2196F3)
+                         AppThemeColor.Red -> Color(0xFFF44336)
+                         AppThemeColor.Purple -> Color(0xFF9C27B0)
+                         AppThemeColor.Orange -> Color(0xFFFF9800)
+                         AppThemeColor.Teal -> Color(0xFF009688)
+                    }
+                    
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(colorValue)
+                            .clickable { onThemeColorChange(color) }
+                            .then(
+                                if (themeColor == color) {
+                                    Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                                } else Modifier
+                            )
+                    )
+                }
+            }
+
             Divider(Modifier.padding(vertical = 16.dp))
 
             // --- AI Analysis ---
@@ -1512,12 +1862,12 @@ fun DaySummaryCard(daySummaryCount: Int, onClick: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Food components summary",
+                    text = "Day summary",
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = if (daySummaryCount == 0) "No components detected yet" else "$daySummaryCount unique components",
+                    text = if (daySummaryCount == 0) "No food components detected yet" else "$daySummaryCount unique food components",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )

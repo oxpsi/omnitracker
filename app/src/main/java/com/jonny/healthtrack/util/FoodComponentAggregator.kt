@@ -5,14 +5,21 @@ import com.jonny.healthtrack.ai.isFoodAnalysis
 import com.jonny.healthtrack.data.LogEntity
 import java.util.Locale
 
+data class ComponentSource(
+    val logId: String,
+    val quantity: Double
+)
+
 data class AggregatedComponent(
     val keyName: String,
     val displayName: String,
     val unit: String?,
-    val quantity: Double
+    val quantity: Double,
+    val sources: List<ComponentSource>
 )
 
 private val preferredComponentOrder: List<String> = listOf(
+    "net weight",
     "energy",
     "protein",
     "carbohydrate",
@@ -22,10 +29,12 @@ private val preferredComponentOrder: List<String> = listOf(
     "sugar",
     "sodium",
     "potassium",
-    "cholesterol"
+    "cholesterol",
+    "caffeine"
 )
 
 private val preferredComponentDisplayNames: Map<String, String> = mapOf(
+    "net weight" to "Net Weight",
     "energy" to "Energy",
     "protein" to "Protein",
     "carbohydrate" to "Carbohydrate",
@@ -35,7 +44,8 @@ private val preferredComponentDisplayNames: Map<String, String> = mapOf(
     "sugar" to "Sugar",
     "sodium" to "Sodium",
     "potassium" to "Potassium",
-    "cholesterol" to "Cholesterol"
+    "cholesterol" to "Cholesterol",
+    "caffeine" to "Caffeine"
 )
 
 private fun String.toTitleCaseWords(): String {
@@ -54,7 +64,7 @@ private fun String.toTitleCaseWords(): String {
 fun aggregateFoodComponents(logs: List<LogEntity>): List<AggregatedComponent> {
     if (logs.isEmpty()) return emptyList()
 
-    val totals = linkedMapOf<Pair<String, String?>, Double>()
+    val componentMap = linkedMapOf<Pair<String, String?>, MutableList<ComponentSource>>()
 
     for (log in logs) {
         val analysis = latestAiAnalysis(log.analysisResults)
@@ -68,19 +78,21 @@ fun aggregateFoodComponents(logs: List<LogEntity>): List<AggregatedComponent> {
             val quantity = component.quantity ?: continue
 
             val key = name to unit
-            totals[key] = (totals[key] ?: 0.0) + quantity
+            componentMap.getOrPut(key) { mutableListOf() }.add(ComponentSource(log.id, quantity))
         }
     }
 
     val rank = preferredComponentOrder.withIndex().associate { it.value to it.index }
-    return totals
-        .map { (key, quantity) ->
+    return componentMap
+        .map { (key, sources) ->
             val keyName = key.first
+            val totalQuantity = sources.sumOf { it.quantity }
             AggregatedComponent(
                 keyName = keyName,
                 displayName = preferredComponentDisplayNames[keyName] ?: keyName.toTitleCaseWords(),
                 unit = key.second,
-                quantity = quantity
+                quantity = totalQuantity,
+                sources = sources
             )
         }
         .sortedWith(
