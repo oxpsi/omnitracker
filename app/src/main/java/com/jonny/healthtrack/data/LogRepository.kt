@@ -8,6 +8,8 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.jonny.healthtrack.ai.AiAnalysisStatus
 import com.jonny.healthtrack.ai.AiAnalysisService
+import com.jonny.healthtrack.ai.AiAnalysisResult
+import com.jonny.healthtrack.ai.parseAiAnalysis
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -45,6 +47,7 @@ data class ExportLogModel(
     val note: String,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val analysis: List<AiAnalysisResult>? = null,
     val analysisData: String? = null,
     val analysisModel: String? = null,
     val analysisUpdatedAt: Long? = null,
@@ -106,8 +109,14 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
 
         return@withContext if (result.isSuccess) {
             val refreshed = logDao.getLogById(log.id) ?: pendingUpdate
+            val parsed = parseAiAnalysis(result.getOrNull())
+            val nextResults = if (parsed != null) {
+                refreshed.analysisResults.orEmpty() + parsed
+            } else {
+                refreshed.analysisResults
+            }
             val updated = refreshed.copy(
-                analysisData = result.getOrNull(),
+                analysisResults = nextResults,
                 analysisStatus = AiAnalysisStatus.COMPLETE,
                 analysisUpdatedAt = now,
                 analysisError = null,
@@ -235,7 +244,7 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
                             note = exportModel.note,
                             latitude = exportModel.latitude,
                             longitude = exportModel.longitude,
-                            analysisData = exportModel.analysisData,
+                            analysisResults = exportModel.analysis ?: parseAiAnalysis(exportModel.analysisData)?.let { listOf(it) },
                             analysisModel = exportModel.analysisModel,
                             analysisUpdatedAt = exportModel.analysisUpdatedAt,
                             analysisStatus = exportModel.analysisStatus,
@@ -275,7 +284,7 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
                                         note = exportModel.note,
                                         latitude = exportModel.latitude,
                                         longitude = exportModel.longitude,
-                                        analysisData = exportModel.analysisData,
+                                        analysisResults = exportModel.analysis ?: parseAiAnalysis(exportModel.analysisData)?.let { listOf(it) },
                                         analysisModel = exportModel.analysisModel,
                                         analysisUpdatedAt = exportModel.analysisUpdatedAt,
                                         analysisStatus = exportModel.analysisStatus,
@@ -325,7 +334,7 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
                     note = log.note,
                     latitude = log.latitude,
                     longitude = log.longitude,
-                    analysisData = log.analysisData,
+                    analysis = log.analysisResults,
                     analysisModel = log.analysisModel,
                     analysisUpdatedAt = log.analysisUpdatedAt,
                     analysisStatus = log.analysisStatus,
@@ -364,7 +373,7 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
                     note = log.note,
                     latitude = log.latitude,
                     longitude = log.longitude,
-                    analysisData = log.analysisData,
+                    analysis = log.analysisResults,
                     analysisModel = log.analysisModel,
                     analysisUpdatedAt = log.analysisUpdatedAt,
                     analysisStatus = log.analysisStatus,

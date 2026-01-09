@@ -2,6 +2,7 @@ package com.jonny.healthtrack.ai
 
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
+import java.util.Locale
 
 object AiAnalysisStatus {
     const val PENDING = "pending"
@@ -28,4 +29,13 @@ fun parseAiAnalysis(json: String?): AiAnalysisResult? {
     } catch (_: JsonSyntaxException) {
         null
     }
+}
+
+fun latestAiAnalysis(results: List<AiAnalysisResult>?): AiAnalysisResult? {
+    return results?.lastOrNull()
+}
+
+fun isFoodAnalysis(result: AiAnalysisResult?): Boolean {
+    val type = result?.type?.trim()?.lowercase(Locale.US)
+    return type == "food"
 }

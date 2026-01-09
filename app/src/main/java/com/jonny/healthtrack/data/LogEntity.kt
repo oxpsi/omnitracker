@@ -1,7 +1,9 @@
 package com.jonny.healthtrack.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.jonny.healthtrack.ai.AiAnalysisResult
 import java.util.UUID
 
 @Entity(tableName = "logs")
@@ -12,7 +14,8 @@ data class LogEntity(
     val note: String,
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val analysisData: String? = null,
+    @ColumnInfo(name = "analysisData")
+    val analysisResults: List<AiAnalysisResult>? = null,
     val analysisModel: String? = null,
     val analysisUpdatedAt: Long? = null,
     val analysisStatus: String? = null,

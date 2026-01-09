@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
@@ -69,11 +70,15 @@ import coil.request.ImageRequest
 import com.google.android.gms.location.LocationServices
 import com.jonny.healthtrack.ai.AiAnalysisStatus
 import com.jonny.healthtrack.ai.AiPreferences
-import com.jonny.healthtrack.ai.parseAiAnalysis
+import com.jonny.healthtrack.ai.latestAiAnalysis
 import com.jonny.healthtrack.data.AppDatabase
 import com.jonny.healthtrack.data.LogEntity
 import com.jonny.healthtrack.data.LogRepository
+import com.jonny.healthtrack.util.normalizeCapturedJpegInPlace
+import com.jonny.healthtrack.util.aggregateFoodComponents
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.text.SimpleDateFormat
@@ -89,6 +94,7 @@ import java.util.*
 sealed class Screen {
     object Home : Screen()
     object Settings : Screen()
+    object DaySummary : Screen()
     data class Detail(val logId: String) : Screen()
 }
 
@@ -157,6 +163,7 @@ fun AppContent(
     
     val logs by repository.allLogs.collectAsState(initial = emptyList())
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
 
     fun toggleSettingsPane() {
         if (currentScreen is Screen.Settings) {
@@ -177,6 +184,7 @@ fun AppContent(
                 isOriginalImage = isOriginal
             )
             repository.addLog(newLog)
+            selectedDate = Instant.ofEpochMilli(newLog.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
             if (aiEnabled && newLog.imagePath.isNotEmpty()) {
                 repository.analyzeLog(newLog)
             }
@@ -211,11 +219,14 @@ fun AppContent(
                 Box(Modifier.weight(listWeight).fillMaxHeight()) {
                     HomeScreen(
                         logs = logs,
+                        selectedDate = selectedDate,
+                        onSelectedDateChange = { selectedDate = it },
                         onAddLog = { file, note, lat, long, isOriginal ->
                             createLog(file, note, lat, long, isOriginal)
                         },
                         onNavigateToSettings = { toggleSettingsPane() },
                         onNavigateToDetail = { logId -> currentScreen = Screen.Detail(logId) },
+                        onNavigateToDaySummary = { currentScreen = Screen.DaySummary },
                         isWideScreen = true
                     )
                 }
@@ -247,6 +258,19 @@ fun AppContent(
                                     )
                                 }
                             }
+                            Screen.DaySummary -> {
+                                val dayLogs = logs.filter {
+                                    val logDate = Instant.ofEpochMilli(it.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
+                                    logDate == selectedDate
+                                }
+                                DaySummaryScreen(
+                                    selectedDate = selectedDate,
+                                    dayLogs = dayLogs,
+                                    onBack = { currentScreen = Screen.Home },
+                                    showBackButton = false,
+                                    showCloseButton = true
+                                )
+                            }
                             Screen.Settings -> SettingsScreen(
                                 isDarkTheme = isDarkTheme,
                                 onToggleTheme = onToggleTheme,
@@ -270,11 +294,14 @@ fun AppContent(
             when (val screen = currentScreen) {
                 Screen.Home -> HomeScreen(
                     logs = logs,
+                    selectedDate = selectedDate,
+                    onSelectedDateChange = { selectedDate = it },
                     onAddLog = { file, note, lat, long, isOriginal ->
                         createLog(file, note, lat, long, isOriginal)
                     },
                     onNavigateToSettings = { currentScreen = Screen.Settings },
                     onNavigateToDetail = { logId -> currentScreen = Screen.Detail(logId) },
+                    onNavigateToDaySummary = { currentScreen = Screen.DaySummary },
                     isWideScreen = false
                 )
                 Screen.Settings -> SettingsScreen(
@@ -287,6 +314,19 @@ fun AppContent(
                     showBackButton = true,
                     showCloseButton = false
                 )
+                Screen.DaySummary -> {
+                    val dayLogs = logs.filter {
+                        val logDate = Instant.ofEpochMilli(it.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
+                        logDate == selectedDate
+                    }
+                    DaySummaryScreen(
+                        selectedDate = selectedDate,
+                        dayLogs = dayLogs,
+                        onBack = { currentScreen = Screen.Home },
+                        showBackButton = true,
+                        showCloseButton = false
+                    )
+                }
                 is Screen.Detail -> {
                     val log = logs.find { it.id == screen.logId }
                     if (log != null) {
@@ -323,15 +363,20 @@ fun AppContent(
 @Composable
 fun HomeScreen(
     logs: List<LogEntity>,
+    selectedDate: LocalDate,
+    onSelectedDateChange: (LocalDate) -> Unit,
     onAddLog: (File?, String, Double?, Double?, Boolean) -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToDetail: (String) -> Unit,
+    onNavigateToDaySummary: () -> Unit,
     isWideScreen: Boolean
 ) {
     val context = LocalContext.current
-    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    val scope = rememberCoroutineScope()
     var showReuseDialog by remember { mutableStateOf(false) }
     var showNoteDialog by remember { mutableStateOf(false) } // For pure note entry
+    var showReuseNoteDialog by remember { mutableStateOf(false) }
+    var reuseTemplateLog by remember { mutableStateOf<LogEntity?>(null) }
     var tempPhotoFile by remember { mutableStateOf<File?>(null) }
     var showFabMenu by remember { mutableStateOf(false) }
 
@@ -346,7 +391,13 @@ fun HomeScreen(
     ) { success ->
         if (success && tempPhotoFile != null) {
             getLastLocation(context) { lat, long ->
-                onAddLog(tempPhotoFile, "", lat, long, true) // Empty note, Original = true
+                val capturedFile = tempPhotoFile
+                scope.launch(Dispatchers.IO) {
+                    val normalized = capturedFile?.let { normalizeCapturedJpegInPlace(it) } ?: capturedFile
+                    withContext(Dispatchers.Main) {
+                        onAddLog(normalized, "", lat, long, true) // Empty note, Original = true
+                    }
+                }
             }
         }
     }
@@ -380,16 +431,8 @@ fun HomeScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     showReuseDialog = false
-                                    // Reuse Logic: Immediate creation with old note + image
-                                    getLastLocation(context) { lat, long ->
-                                        onAddLog(
-                                            if (log.imagePath.isNotEmpty()) File(log.imagePath) else null,
-                                            log.note, // Keep old note
-                                            lat, 
-                                            long, 
-                                            false // Original = false (Reuse)
-                                        )
-                                    }
+                                    reuseTemplateLog = log
+                                    showReuseNoteDialog = true
                                 }
                                 .padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -427,6 +470,30 @@ fun HomeScreen(
                 Spacer(Modifier.height(32.dp))
             }
         }
+    }
+
+    if (showReuseNoteDialog && reuseTemplateLog != null) {
+        val template = reuseTemplateLog!!
+        NoteDialog(
+            initialNote = template.note,
+            onDismiss = {
+                showReuseNoteDialog = false
+                reuseTemplateLog = null
+            },
+            onConfirm = { note ->
+                getLastLocation(context) { lat, long ->
+                    onAddLog(
+                        if (template.imagePath.isNotEmpty()) File(template.imagePath) else null,
+                        note,
+                        lat,
+                        long,
+                        false // Original = false (Reuse)
+                    )
+                    showReuseNoteDialog = false
+                    reuseTemplateLog = null
+                }
+            }
+        )
     }
 
     // Pure Note Dialog
@@ -521,7 +588,7 @@ fun HomeScreen(
                 }
                 
                 DateSelector(selectedDate) { newDate ->
-                    selectedDate = newDate
+                    onSelectedDateChange(newDate)
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Divider()
@@ -529,7 +596,108 @@ fun HomeScreen(
         }
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
-            LogList(filteredLogs, onLogClick = { onNavigateToDetail(it.id) })
+            val componentSummary = remember(filteredLogs) { aggregateFoodComponents(filteredLogs) }
+            LogList(
+                logs = filteredLogs,
+                onLogClick = { onNavigateToDetail(it.id) },
+                onDaySummaryClick = onNavigateToDaySummary,
+                daySummaryCount = componentSummary.size
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DaySummaryScreen(
+    selectedDate: LocalDate,
+    dayLogs: List<LogEntity>,
+    onBack: () -> Unit,
+    showBackButton: Boolean,
+    showCloseButton: Boolean
+) {
+    val components = remember(dayLogs) { aggregateFoodComponents(dayLogs) }
+
+    fun formatQuantity(value: Double): String {
+        val isWhole = value % 1.0 == 0.0
+        if (isWhole) return value.toLong().toString()
+        return String.format(Locale.US, "%.2f", value).trimEnd('0').trimEnd('.')
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        "Components · ${selectedDate.format(DateTimeFormatter.ofPattern("MMM d"))}"
+                    )
+                },
+                navigationIcon = if (showBackButton) {
+                    {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.ArrowBack, "Back")
+                        }
+                    }
+                } else ({}),
+                actions = {
+                    if (showCloseButton) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.Close, "Close")
+                        }
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        if (components.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No food components found for this day.", color = Color.Gray)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(components) { component ->
+                    Card(
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = component.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                component.unit?.let { unit ->
+                                    Text(
+                                        text = unit,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray
+                                    )
+                                }
+                            }
+                            Text(
+                                text = formatQuantity(component.quantity),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -848,7 +1016,7 @@ fun DetailScreen(
     val context = LocalContext.current
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showNoteEditDialog by remember { mutableStateOf(false) }
-    val analysis = remember(log.analysisData) { parseAiAnalysis(log.analysisData) }
+    val analysis = remember(log.analysisResults) { latestAiAnalysis(log.analysisResults) }
     val isAnalyzing = log.analysisStatus == AiAnalysisStatus.PENDING
     
     // Time Edit State
@@ -1225,7 +1393,12 @@ fun DetailScreen(
 }
 
 @Composable
-fun LogList(logs: List<LogEntity>, onLogClick: (LogEntity) -> Unit) {
+fun LogList(
+    logs: List<LogEntity>,
+    onLogClick: (LogEntity) -> Unit,
+    onDaySummaryClick: () -> Unit,
+    daySummaryCount: Int
+) {
     if (logs.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No logs for this day.", color = Color.Gray)
@@ -1235,6 +1408,9 @@ fun LogList(logs: List<LogEntity>, onLogClick: (LogEntity) -> Unit) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item {
+                DaySummaryCard(daySummaryCount = daySummaryCount, onClick = onDaySummaryClick)
+            }
             items(logs) { log ->
                 LogItem(log, onClick = { onLogClick(log) })
             }
@@ -1243,7 +1419,44 @@ fun LogList(logs: List<LogEntity>, onLogClick: (LogEntity) -> Unit) {
 }
 
 @Composable
+fun DaySummaryCard(daySummaryCount: Int, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Summarize, contentDescription = null)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Food components summary",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = if (daySummaryCount == 0) "No components detected yet" else "$daySummaryCount unique components",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun LogItem(log: LogEntity, onClick: () -> Unit) {
+    val analysisTitle = remember(log.analysisResults) { latestAiAnalysis(log.analysisResults)?.title?.trim() }
+    val displayText = analysisTitle?.takeIf { it.isNotBlank() }
+        ?: log.note.takeIf { it.isNotBlank() }
+        ?: "No details"
+
     Card(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(12.dp),
@@ -1313,7 +1526,7 @@ fun LogItem(log: LogEntity, onClick: () -> Unit) {
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = if (log.note.isNotBlank()) log.note else "No details",
+                    text = displayText,
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
