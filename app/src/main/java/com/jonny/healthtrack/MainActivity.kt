@@ -89,6 +89,7 @@ import coil.request.ImageRequest
 import com.google.android.gms.location.LocationServices
 import com.jonny.healthtrack.ai.AiAnalysisStatus
 import com.jonny.healthtrack.ai.AiPreferences
+import com.jonny.healthtrack.ai.OpenAiApiType
 import com.jonny.healthtrack.ai.latestAiAnalysis
 import com.jonny.healthtrack.data.AppDatabase
 import com.jonny.healthtrack.data.LogEntity
@@ -274,49 +275,47 @@ fun AppContent(
         }
     }
 
-    fun createLog(file: File?, note: String, lat: Double?, long: Double?, isOriginal: Boolean, analysisSource: LogEntity? = null) {
-        scope.launch {
-            val newLog = LogEntity(
-                timestamp = System.currentTimeMillis(),
-                imagePath = file?.absolutePath ?: "",
-                note = note,
-                latitude = lat,
-                longitude = long,
-                isOriginalImage = isOriginal,
-                analysisResults = analysisSource?.analysisResults,
-                analysisStatus = analysisSource?.analysisStatus,
-                analysisModel = analysisSource?.analysisModel,
-                analysisUpdatedAt = if (analysisSource != null) System.currentTimeMillis() else null,
-                analysisError = analysisSource?.analysisError
-            )
-            repository.addLog(newLog)
-            selectedDate = Instant.ofEpochMilli(newLog.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
-            
-            // Analyze only if we didn't copy analysis, OR if the copied analysis was not complete/successful and we want to try again (though usually we just copy state)
-            // Actually, if we reuse, we assume we want that state. If it was pending/error, maybe we want to retry?
-            // User request: "copy over instead of doing a new analysis". Implies exact copy.
-            if (analysisSource == null && aiEnabled && (newLog.imagePath.isNotEmpty() || newLog.note.isNotBlank())) {
-                repository.analyzeLog(newLog)
-            }
-            // Navigate to detail after creation
-            currentScreen = Screen.Detail(newLog.id)
-        }
-    }
+	    fun createLog(file: File?, note: String, lat: Double?, long: Double?, isOriginal: Boolean, analysisSource: LogEntity? = null) {
+	        scope.launch {
+	            val newLog = LogEntity(
+	                timestamp = System.currentTimeMillis(),
+	                imagePath = file?.absolutePath ?: "",
+	                note = note,
+	                latitude = lat,
+	                longitude = long,
+	                isOriginalImage = isOriginal,
+	                analysisResults = analysisSource?.analysisResults,
+	                analysisStatus = analysisSource?.analysisStatus,
+	                analysisModel = analysisSource?.analysisModel,
+	                analysisUpdatedAt = if (analysisSource != null) System.currentTimeMillis() else null,
+	                analysisError = analysisSource?.analysisError
+	            )
+	            repository.addLog(newLog)
+	            selectedDate = Instant.ofEpochMilli(newLog.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
+
+	            // Navigate immediately after creation. (AI analysis completion should never trigger navigation.)
+	            currentScreen = Screen.Detail(newLog.id)
+
+	            // Kick off analysis in the background so the UI doesn't "jump" later when analysis finishes.
+	            if (analysisSource == null && aiEnabled && (newLog.imagePath.isNotEmpty() || newLog.note.isNotBlank())) {
+	                launch { repository.queueAnalysis(newLog, force = false) }
+	            }
+	        }
+	    }
 
     fun updateAiEnabled(enabled: Boolean) {
         aiEnabled = enabled
         AiPreferences.setEnabled(context, enabled)
     }
 
-    fun requestAnalysis(log: LogEntity, force: Boolean, showErrors: Boolean) {
-        scope.launch {
-            val result = repository.analyzeLog(log, force)
-            if (showErrors && result.isFailure) {
-                val message = result.exceptionOrNull()?.message ?: "AI analysis failed"
-                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+	    fun requestAnalysis(log: LogEntity, force: Boolean, showErrors: Boolean) {
+	        scope.launch {
+	            repository.queueAnalysis(log, force)
+	            if (showErrors) {
+	                Toast.makeText(context, "Analysis queued (runs in background)", Toast.LENGTH_SHORT).show()
+	            }
+	        }
+	    }
 
     // Adaptive Layout Logic
     BoxWithConstraints {
@@ -1076,6 +1075,8 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var openAiApiType by remember { mutableStateOf(AiPreferences.getOpenAiApiType(context)) }
+    var openAiApiTypeExpanded by remember { mutableStateOf(false) }
     var openAiModel by remember { mutableStateOf(AiPreferences.getOpenAiModel(context)) }
     var openAiModelExpanded by remember { mutableStateOf(false) }
     
@@ -1301,6 +1302,52 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(12.dp))
 
+            Text("OpenAI API type", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Completions = /v1/chat/completions, Responses = /v1/responses (recommended).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            Spacer(Modifier.height(8.dp))
+
+            ExposedDropdownMenuBox(
+                expanded = openAiApiTypeExpanded,
+                onExpandedChange = { openAiApiTypeExpanded = !openAiApiTypeExpanded }
+            ) {
+                OutlinedTextField(
+                    value = openAiApiType.name.lowercase(Locale.US).replaceFirstChar { it.titlecase(Locale.US) },
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(),
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = openAiApiTypeExpanded) }
+                )
+
+	                ExposedDropdownMenu(
+	                    expanded = openAiApiTypeExpanded,
+	                    onDismissRequest = { openAiApiTypeExpanded = false }
+	                ) {
+	                    AiPreferences.openAiApiTypeOptions.forEach { apiType ->
+	                        DropdownMenuItem(
+	                            text = { Text(apiType.name.lowercase(Locale.US).replaceFirstChar { it.titlecase(Locale.US) }) },
+	                            onClick = {
+	                                openAiApiType = apiType
+	                                AiPreferences.setOpenAiApiType(context, apiType)
+	                                val modelOptions = AiPreferences.getOpenAiModelOptions(apiType)
+	                                if (openAiModel !in modelOptions) {
+	                                    openAiModel = modelOptions.first()
+	                                    AiPreferences.setOpenAiModel(context, openAiModel)
+	                                }
+	                                openAiApiTypeExpanded = false
+	                            }
+	                        )
+	                    }
+	                }
+	            }
+
+            Spacer(Modifier.height(12.dp))
+
             Text("OpenAI model", style = MaterialTheme.typography.bodyLarge)
             Text(
                 "Used when OPENAI_API_KEY is set (otherwise Gemini is used).",
@@ -1323,16 +1370,16 @@ fun SettingsScreen(
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = openAiModelExpanded) }
                 )
 
-                ExposedDropdownMenu(
-                    expanded = openAiModelExpanded,
-                    onDismissRequest = { openAiModelExpanded = false }
-                ) {
-                    AiPreferences.openAiModelOptions.forEach { model ->
-                        DropdownMenuItem(
-                            text = { Text(model) },
-                            onClick = {
-                                openAiModel = model
-                                AiPreferences.setOpenAiModel(context, model)
+	                ExposedDropdownMenu(
+	                    expanded = openAiModelExpanded,
+	                    onDismissRequest = { openAiModelExpanded = false }
+	                ) {
+	                    AiPreferences.getOpenAiModelOptions(openAiApiType).forEach { model ->
+	                        DropdownMenuItem(
+	                            text = { Text(model) },
+	                            onClick = {
+	                                openAiModel = model
+	                                AiPreferences.setOpenAiModel(context, model)
                                 openAiModelExpanded = false
                             }
                         )
@@ -1796,21 +1843,28 @@ fun DetailScreen(
 
                         Spacer(Modifier.height(8.dp))
 
-                        when {
-                            !aiEnabled -> {
-                                Text("Enable AI analysis in Settings to use this feature.", style = MaterialTheme.typography.bodyMedium)
-                            }
-                            log.imagePath.isEmpty() && log.note.isBlank() -> {
-                                Text("Add a note or photo to analyze.", style = MaterialTheme.typography.bodyMedium)
-                            }
-                            log.analysisStatus == AiAnalysisStatus.ERROR -> {
-                                Text(
-                                    text = "Last analysis failed: ${log.analysisError ?: "Unknown error"}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            }
-                        }
+	                        when {
+	                            !aiEnabled -> {
+	                                Text("Enable AI analysis in Settings to use this feature.", style = MaterialTheme.typography.bodyMedium)
+	                            }
+	                            log.imagePath.isEmpty() && log.note.isBlank() -> {
+	                                Text("Add a note or photo to analyze.", style = MaterialTheme.typography.bodyMedium)
+	                            }
+	                            log.analysisStatus == AiAnalysisStatus.ERROR -> {
+	                                Text(
+	                                    text = "Last analysis failed: ${log.analysisError ?: "Unknown error"}",
+	                                    style = MaterialTheme.typography.bodyMedium,
+	                                    color = MaterialTheme.colorScheme.error
+	                                )
+	                            }
+	                            log.analysisStatus == AiAnalysisStatus.PENDING && !log.analysisError.isNullOrBlank() -> {
+	                                Text(
+	                                    text = "Retrying: ${log.analysisError}",
+	                                    style = MaterialTheme.typography.bodyMedium,
+	                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+	                                )
+	                            }
+	                        }
 
                         if (analysis != null) {
                             Spacer(Modifier.height(12.dp))
@@ -1946,6 +2000,7 @@ fun LogItem(log: LogEntity, onClick: () -> Unit) {
     val displayText = analysisTitle?.takeIf { it.isNotBlank() }
         ?: log.note.takeIf { it.isNotBlank() }
         ?: "No details"
+    val isAnalyzing = log.analysisStatus == AiAnalysisStatus.PENDING
 
     Card(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -2028,16 +2083,28 @@ fun LogItem(log: LogEntity, onClick: () -> Unit) {
                         color = Color.Gray
                     )
                 }
-            }
+	            }
 
-            Text(
-                text = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(log.timestamp)),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(end = 16.dp)
-            )
-        }
-    }
+	            Column(
+	                modifier = Modifier.padding(end = 16.dp),
+	                horizontalAlignment = Alignment.End,
+	                verticalArrangement = Arrangement.Center
+	            ) {
+	                Text(
+	                    text = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(log.timestamp)),
+	                    style = MaterialTheme.typography.labelMedium,
+	                    color = MaterialTheme.colorScheme.primary
+	                )
+	                if (isAnalyzing) {
+	                    Spacer(Modifier.height(6.dp))
+	                    CircularProgressIndicator(
+	                        modifier = Modifier.size(16.dp),
+	                        strokeWidth = 2.dp
+	                    )
+	                }
+	            }
+	        }
+	    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

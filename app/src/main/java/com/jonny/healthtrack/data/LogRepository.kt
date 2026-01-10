@@ -9,6 +9,7 @@ import com.google.gson.reflect.TypeToken
 import com.jonny.healthtrack.ai.AiAnalysisStatus
 import com.jonny.healthtrack.ai.AiAnalysisService
 import com.jonny.healthtrack.ai.AiAnalysisResult
+import com.jonny.healthtrack.ai.AiAnalysisWork
 import com.jonny.healthtrack.ai.parseAiAnalysis
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -135,6 +136,23 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
             logDao.insertLog(updated)
             Result.failure(result.exceptionOrNull() ?: IllegalStateException("AI analysis failed"))
         }
+    }
+
+    suspend fun queueAnalysis(log: LogEntity, force: Boolean = false) = withContext(Dispatchers.IO) {
+        if (log.imagePath.isBlank() && log.note.isBlank()) return@withContext
+
+        val latest = logDao.getLogById(log.id) ?: log
+        if (!force && latest.analysisStatus == AiAnalysisStatus.PENDING) return@withContext
+
+        val pendingUpdate = latest.copy(
+            analysisStatus = AiAnalysisStatus.PENDING,
+            analysisUpdatedAt = System.currentTimeMillis(),
+            analysisError = null,
+            analysisModel = aiService.getActiveModelName(context)
+        )
+        logDao.insertLog(pendingUpdate)
+
+        AiAnalysisWork.enqueue(context, log.id, force)
     }
 
     fun checkAndMigrateLegacyData() {

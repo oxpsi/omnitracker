@@ -19,7 +19,11 @@ class AiAnalysisService(
     private fun getProvider(context: Context): AiProvider {
         // Simple strategy: Prefer OpenAI if key is present, otherwise fallback to Gemini
         return if (openAiApiKey.isNotBlank()) {
-            OpenAIProvider(openAiApiKey, AiPreferences.getOpenAiModel(context))
+            OpenAIProvider(
+                openAiApiKey,
+                AiPreferences.getOpenAiModel(context),
+                AiPreferences.getOpenAiApiType(context)
+            )
         } else {
             GeminiProvider(geminiApiKey, geminiModel)
         }
