@@ -18,7 +18,7 @@ class OpenAIProvider(
     private val model: String = "gpt-4.1"
 ) : AiProvider {
 
-    override suspend fun analyzeLog(imageFile: File?, note: String, userId: String): Result<String> = withContext(Dispatchers.IO) {
+    override suspend fun analyzeLog(imageFile: File?, note: String, userId: String, reasoningLevel: String): Result<String> = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) return@withContext Result.failure(IllegalStateException("Missing OpenAI API key"))
 
         val base64Image = if (imageFile != null) {
@@ -30,7 +30,7 @@ class OpenAIProvider(
         }
         val mimeType = if (imageFile != null) guessMimeType(imageFile) else null
 
-        val requestBody = buildRequestBody(base64Image, mimeType, note, userId)
+        val requestBody = buildRequestBody(base64Image, mimeType, note, userId, reasoningLevel)
         val url = URL("https://api.openai.com/v1/chat/completions")
         val connection = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -67,7 +67,7 @@ class OpenAIProvider(
         }
     }
 
-    private fun buildRequestBody(base64Image: String?, mimeType: String?, note: String, userId: String): String {
+    private fun buildRequestBody(base64Image: String?, mimeType: String?, note: String, userId: String, reasoningLevel: String): String {
         val prompt = AiPrompts.getAnalysisPrompt(note)
         
         // Use shared schema
@@ -93,13 +93,23 @@ class OpenAIProvider(
             }
         }
 
-        val request = mapOf(
+        // Check if model supports reasoning_effort parameter
+        val supportsReasoningParam = model.startsWith("o1") || model.startsWith("o3") || model.contains("gpt-5.2-pro")
+        
+        // If not supported natively, inject into system prompt
+        val systemInstruction = if (supportsReasoningParam) {
+            "You are a health log analysis assistant."
+        } else {
+            "You are a health log analysis assistant. Please use $reasoningLevel reasoning effort for this analysis."
+        }
+
+        val request = mutableMapOf<String, Any>(
             "model" to model,
             "user" to userId,
             "messages" to listOf(
                 mapOf(
                     "role" to "system",
-                    "content" to "You are a health log analysis assistant."
+                    "content" to systemInstruction
                 ),
                 mapOf(
                     "role" to "user",
@@ -111,6 +121,11 @@ class OpenAIProvider(
                 "json_schema" to jsonSchema
             )
         )
+        
+        if (supportsReasoningParam) {
+            request["reasoning_effort"] = reasoningLevel
+        }
+
         return Gson().toJson(request)
     }
 

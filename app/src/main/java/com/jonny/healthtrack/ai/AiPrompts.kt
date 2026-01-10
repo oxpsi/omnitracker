@@ -22,7 +22,7 @@ Guidelines:
   For biological outputs (stool), stick to 'clinical reporting': Use standard clinical/pathology terminology. For stool, use 'Bristol Stool Scale' for consistency in description.
   For special units, stick to original specifications and avoid converting unless using external references. (IU, cfu, BSS, etc)
   The above guidelines must be strict, do not add any additional comments or characters for component values (name, unit, quantity) as this is used in a aggregation algorithm.
-  As for which components to add: For food make sure to always incluce energy, macros (protein, fat, carbs), dietary fiber (optionally include insoluble and/or soluble when known).
+  As for which components to add: For food make sure to always incluce energy, macros (protein, fat, carbs), dietary fiber (try to include insoluble and/or soluble when possible).
   For negligable or zero value components, just omit it entirely. Include any chemical/compound/component that is present in enough biologically relevant amounts and known/identified.
   For a very complex mixture, just include the most important 20 components.
 

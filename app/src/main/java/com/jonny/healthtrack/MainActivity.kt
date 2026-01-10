@@ -97,6 +97,7 @@ import com.jonny.healthtrack.util.aggregateFoodComponents
 import com.jonny.healthtrack.util.normalizeCapturedJpegInPlace
 import com.jonny.healthtrack.util.AppThemeColor
 import com.jonny.healthtrack.util.ThemePreferences
+import com.jonny.healthtrack.util.ShareUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -815,6 +816,7 @@ fun DaySummaryScreen(
         return String.format(Locale.US, "%.2f", value).trimEnd('0').trimEnd('.')
     }
 
+    val context = LocalContext.current
     Scaffold(
         topBar = {
             TopAppBar(
@@ -831,6 +833,15 @@ fun DaySummaryScreen(
                     }
                 } else ({}),
                 actions = {
+                    IconButton(onClick = {
+                        if (components.isNotEmpty()) {
+                            ShareUtils.shareDaySummary(context, selectedDate, components)
+                        } else {
+                            Toast.makeText(context, "Nothing to share", Toast.LENGTH_SHORT).show()
+                        }
+                    }) {
+                        Icon(Icons.Default.Share, "Share Summary")
+                    }
                     if (showCloseButton) {
                         IconButton(onClick = onBack) {
                             Icon(Icons.Default.Close, "Close")
@@ -1067,6 +1078,11 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     var openAiModel by remember { mutableStateOf(AiPreferences.getOpenAiModel(context)) }
     var openAiModelExpanded by remember { mutableStateOf(false) }
+    
+    // Reasoning Level
+    var reasoningLevel by remember { mutableStateOf(AiPreferences.getReasoningLevel(context)) }
+    var reasoningLevelExpanded by remember { mutableStateOf(false) }
+    val reasoningOptions = listOf("low", "medium", "high")
 
     // Export State
     var showExportDialog by remember { mutableStateOf(false) }
@@ -1323,6 +1339,54 @@ fun SettingsScreen(
                     }
                 }
             }
+            
+            Spacer(Modifier.height(12.dp))
+            Text("Reasoning Effort", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Adjust the depth of AI thinking.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            Spacer(Modifier.height(8.dp))
+            
+            ExposedDropdownMenuBox(
+                expanded = reasoningLevelExpanded,
+                onExpandedChange = { reasoningLevelExpanded = !reasoningLevelExpanded }
+            ) {
+                OutlinedTextField(
+                    value = reasoningLevel.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() },
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(),
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = reasoningLevelExpanded) }
+                )
+
+                ExposedDropdownMenu(
+                    expanded = reasoningLevelExpanded,
+                    onDismissRequest = { reasoningLevelExpanded = false }
+                ) {
+                    reasoningOptions.forEach { level ->
+                        DropdownMenuItem(
+                            text = { Text(level.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() }) },
+                            onClick = {
+                                reasoningLevel = level
+                                AiPreferences.setReasoningLevel(context, level)
+                                reasoningLevelExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+            
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Estimated Cost: ${AiPreferences.getEstimatedCost(context)}",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
 
             Divider(Modifier.padding(vertical = 16.dp))
 

@@ -17,7 +17,7 @@ class GeminiProvider(
     private val model: String = BuildConfig.GEMINI_MODEL
 ) : AiProvider {
 
-    override suspend fun analyzeLog(imageFile: File?, note: String, userId: String): Result<String> = withContext(Dispatchers.IO) {
+    override suspend fun analyzeLog(imageFile: File?, note: String, userId: String, reasoningLevel: String): Result<String> = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) return@withContext Result.failure(IllegalStateException("Missing Gemini API key"))
 
         val base64Image = if (imageFile != null) {
@@ -29,7 +29,10 @@ class GeminiProvider(
         }
         val mimeType = if (imageFile != null) guessMimeType(imageFile) else null
 
-        val requestBody = buildRequestBody(base64Image, mimeType, note)
+        // Inject reasoning level instruction into the note/prompt as Gemini doesn't have a parameter for it in this API version
+        val enhancedNote = "$note\n\n(Please apply $reasoningLevel reasoning effort for this analysis)"
+        
+        val requestBody = buildRequestBody(base64Image, mimeType, enhancedNote)
         val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
         val connection = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
