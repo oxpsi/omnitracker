@@ -49,12 +49,14 @@ class AiAnalysisWorker(
             } else {
                 refreshed.analysisResults
             }
+            val aiPrivate = parsed?.isPrivate == true
             val updated = refreshed.copy(
                 analysisResults = nextResults,
                 analysisStatus = AiAnalysisStatus.COMPLETE,
                 analysisUpdatedAt = now,
                 analysisError = null,
-                analysisModel = aiService.getActiveModelName(applicationContext)
+                analysisModel = aiService.getActiveModelName(applicationContext),
+                isPrivate = if (aiPrivate) true else refreshed.isPrivate
             )
             logDao.insertLog(updated)
             Result.success()

@@ -2,6 +2,7 @@ package com.jonny.healthtrack.ai
 
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
+import com.google.gson.annotations.SerializedName
 import java.util.Locale
 
 object AiAnalysisStatus {
@@ -19,7 +20,9 @@ data class AiAnalysisComponent(
 data class AiAnalysisResult(
     val title: String? = null,
     val type: String? = null,
-    val components: List<AiAnalysisComponent> = emptyList()
+    val components: List<AiAnalysisComponent> = emptyList(),
+    @SerializedName("private")
+    val isPrivate: Boolean = false
 )
 
 fun parseAiAnalysis(json: String?): AiAnalysisResult? {

@@ -117,12 +117,14 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
             } else {
                 refreshed.analysisResults
             }
+            val aiPrivate = parsed?.isPrivate == true
             val updated = refreshed.copy(
                 analysisResults = nextResults,
                 analysisStatus = AiAnalysisStatus.COMPLETE,
                 analysisUpdatedAt = now,
                 analysisError = null,
-                analysisModel = aiService.getActiveModelName(context)
+                analysisModel = aiService.getActiveModelName(context),
+                isPrivate = if (aiPrivate) true else refreshed.isPrivate
             )
             logDao.insertLog(updated)
             Result.success(updated)

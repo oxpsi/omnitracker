@@ -9,7 +9,8 @@ Identify and extract key constituents into the specified JSON structure.
 
 Guidelines:
 - Title: A short, human-readable label for the item (e.g., "Scrambled Eggs", "Ibuprofen 200mg"). This should not include details.
-- Type: Short classification. Specifically use: 'Food', 'Medicine', 'Supplement', 'Stool', or another Title Case type if not fitting in those. Spaces if necessary for multi word.
+- Type: Short classification. Specifically use: 'Food', 'Medicine', 'Supplement', 'Stool', 'State', 'Observation' or another Title Case type if not fitting in those. Spaces if necessary for multi word.
+- Private: Boolean flag. Mark true for any Stool or Observation (or for other non-standard types that seem very sensitive.)
 - Components: Break down and list top components of the log entry. Such as macros and micros, active ingredients, constituants, etc.
   Be precise, nutritionally, and medically accurate here, use your best judgement based on given data. Estimate quantities where visible or implied as accurately as possible.
   
@@ -32,6 +33,11 @@ Guidelines:
   
   For special units, stick to original specifications and avoid converting unless using external references. (IU, cfu, BSS, etc)
   
+  For 'Observation' type, decompose text into components using standardized clinical English (terms patients would understand).
+  Format specific body parts as 'Condition (Location)' (e.g., 'hot ears' → 'Flushing (Ears)').
+  Map mental states to their clinical root (e.g., 'feeling irritated' → 'Irritability'). Isolate composite feelings.
+  Default unit to 'Intensity' (1-10) for sensations, use 'Count' for numeric quantities.
+
   The above guidelines must be strict, do not add any additional comments or characters for component values (name, unit, quantity) as this is used in a aggregation algorithm.
 
   For negligable or zero value components, just omit it entirely. Include any chemical/compound/component that is present in enough biologically relevant amounts and known/identified.
@@ -56,8 +62,11 @@ User Note: "$safeNote"
                 ),
                 "type" to mapOf(
                     "type" to "string",
-                    "description" to "Category: food, medicine, supplement, activity, symptom, other",
-                    "enum" to listOf("food", "medicine", "supplement", "activity", "symptom", "other")
+                    "description" to "Category: Food, Medicine, Supplement, Stool, State, Observation, or another Title Case type"
+                ),
+                "private" to mapOf(
+                    "type" to "boolean",
+                    "description" to "True if the log should be hidden from the gallery"
                 ),
                 "components" to mapOf(
                     "type" to "array",
@@ -74,7 +83,7 @@ User Note: "$safeNote"
                     )
                 )
             ),
-            "required" to listOf("title", "type", "components"),
+            "required" to listOf("title", "type", "private", "components"),
             "additionalProperties" to false
         )
     }
