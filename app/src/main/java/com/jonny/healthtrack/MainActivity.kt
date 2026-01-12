@@ -55,7 +55,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SetMeal
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.TripOrigin
 import androidx.compose.material.icons.filled.Visibility
@@ -89,6 +88,7 @@ import coil.request.ImageRequest
 import com.google.android.gms.location.LocationServices
 import com.jonny.healthtrack.ai.AiAnalysisStatus
 import com.jonny.healthtrack.ai.AiPreferences
+import com.jonny.healthtrack.ai.AiModelPreset
 import com.jonny.healthtrack.ai.OpenAiApiType
 import com.jonny.healthtrack.ai.latestAiAnalysis
 import com.jonny.healthtrack.data.AppDatabase
@@ -498,6 +498,7 @@ fun HomeScreen(
     var pendingCameraLong by rememberSaveable { mutableStateOf<Double?>(null) }
     var tempPhotoPath by rememberSaveable { mutableStateOf<String?>(null) }
     var showFabMenu by remember { mutableStateOf(false) }
+    var activePreset by remember { mutableStateOf(AiPreferences.getActivePreset(context)) }
 
     val filteredLogs = logs.filter {
         val logDate = Instant.ofEpochMilli(it.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
@@ -663,53 +664,95 @@ fun HomeScreen(
 
     Scaffold(
         floatingActionButton = {
-            Column(horizontalAlignment = Alignment.End) {
-                if (showFabMenu) {
-                    FloatingActionButton(
-                        onClick = {
-                            showFabMenu = false
-                            showReuseDialog = true
-                        },
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    ) {
-                        Icon(Icons.Default.Refresh, "Reuse History")
-                    }
-                    
-                    FloatingActionButton(
-                        onClick = {
-                            showFabMenu = false
-                            showNoteDialog = true
-                        },
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    ) {
-                        Icon(Icons.Default.Create, "Text Only")
-                    }
-                    
-                    FloatingActionButton(
-                        onClick = {
-                            showFabMenu = false
-                            permissionLauncher.launch(
-                                arrayOf(
-                                    Manifest.permission.CAMERA,
-                                    Manifest.permission.ACCESS_FINE_LOCATION,
-                                    Manifest.permission.ACCESS_COARSE_LOCATION
-                                )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Spacer(Modifier.weight(1f))
+
+                FloatingActionButton(
+                    onClick = {
+                        activePreset = if (activePreset == AiModelPreset.LOW) AiModelPreset.HIGH else AiModelPreset.LOW
+                        AiPreferences.setActivePreset(context, activePreset)
+                    },
+                    containerColor = if (activePreset == AiModelPreset.HIGH) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    },
+                    modifier = Modifier.padding(end = 12.dp)
+                ) {
+                    if (activePreset == AiModelPreset.HIGH) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Icon(
+                                Icons.Default.Bolt,
+                                contentDescription = "High model preset",
+                                modifier = Modifier.size(18.dp)
                             )
-                        },
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    ) {
-                        Icon(Icons.Default.Add, "New Entry")
+                            Icon(
+                                Icons.Default.Bolt,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    } else {
+                        Icon(
+                            Icons.Default.Bolt,
+                            contentDescription = "Low model preset"
+                        )
                     }
                 }
-                
-                FloatingActionButton(onClick = { showFabMenu = !showFabMenu }) {
+
+                Column(horizontalAlignment = Alignment.End) {
                     if (showFabMenu) {
-                        Icon(Icons.Default.Close, "Close Menu")
-                    } else {
-                        Icon(Icons.Default.Add, "Menu")
+                        FloatingActionButton(
+                            onClick = {
+                                showFabMenu = false
+                                showReuseDialog = true
+                            },
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, "Reuse History")
+                        }
+                        
+                        FloatingActionButton(
+                            onClick = {
+                                showFabMenu = false
+                                showNoteDialog = true
+                            },
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        ) {
+                            Icon(Icons.Default.Create, "Text Only")
+                        }
+                        
+                        FloatingActionButton(
+                            onClick = {
+                                showFabMenu = false
+                                permissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.CAMERA,
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                    )
+                                )
+                            },
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        ) {
+                            Icon(Icons.Default.Add, "New Entry")
+                        }
+                    }
+                    
+                    FloatingActionButton(onClick = { showFabMenu = !showFabMenu }) {
+                        if (showFabMenu) {
+                            Icon(Icons.Default.Close, "Close Menu")
+                        } else {
+                            Icon(Icons.Default.Add, "Menu")
+                        }
                     }
                 }
             }
@@ -1077,12 +1120,17 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     var openAiApiType by remember { mutableStateOf(AiPreferences.getOpenAiApiType(context)) }
     var openAiApiTypeExpanded by remember { mutableStateOf(false) }
-    var openAiModel by remember { mutableStateOf(AiPreferences.getOpenAiModel(context)) }
-    var openAiModelExpanded by remember { mutableStateOf(false) }
+    var openAiModelLow by remember { mutableStateOf(AiPreferences.getOpenAiModel(context, AiModelPreset.LOW)) }
+    var openAiModelLowExpanded by remember { mutableStateOf(false) }
+    var openAiModelHigh by remember { mutableStateOf(AiPreferences.getOpenAiModel(context, AiModelPreset.HIGH)) }
+    var openAiModelHighExpanded by remember { mutableStateOf(false) }
+    var webSearchEnabled by remember { mutableStateOf(AiPreferences.isWebSearchEnabled(context)) }
     
     // Reasoning Level
-    var reasoningLevel by remember { mutableStateOf(AiPreferences.getReasoningLevel(context)) }
-    var reasoningLevelExpanded by remember { mutableStateOf(false) }
+    var reasoningLevelLow by remember { mutableStateOf(AiPreferences.getReasoningLevel(context, AiModelPreset.LOW)) }
+    var reasoningLevelLowExpanded by remember { mutableStateOf(false) }
+    var reasoningLevelHigh by remember { mutableStateOf(AiPreferences.getReasoningLevel(context, AiModelPreset.HIGH)) }
+    var reasoningLevelHighExpanded by remember { mutableStateOf(false) }
     val reasoningOptions = listOf("low", "medium", "high")
 
     // Export State
@@ -1332,23 +1380,45 @@ fun SettingsScreen(
 	                        DropdownMenuItem(
 	                            text = { Text(apiType.name.lowercase(Locale.US).replaceFirstChar { it.titlecase(Locale.US) }) },
 	                            onClick = {
-	                                openAiApiType = apiType
-	                                AiPreferences.setOpenAiApiType(context, apiType)
-	                                val modelOptions = AiPreferences.getOpenAiModelOptions(apiType)
-	                                if (openAiModel !in modelOptions) {
-	                                    openAiModel = modelOptions.first()
-	                                    AiPreferences.setOpenAiModel(context, openAiModel)
-	                                }
-	                                openAiApiTypeExpanded = false
-	                            }
-	                        )
-	                    }
-	                }
-	            }
+                                openAiApiType = apiType
+                                AiPreferences.setOpenAiApiType(context, apiType)
+                                openAiModelLow = AiPreferences.getOpenAiModel(context, AiModelPreset.LOW)
+                                openAiModelHigh = AiPreferences.getOpenAiModel(context, AiModelPreset.HIGH)
+                                openAiApiTypeExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            val webSearchSupported = openAiApiType == OpenAiApiType.RESPONSES
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Enable web search (Responses API)", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Lets the model call the server-side web_search tool during analysis.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+                Switch(
+                    checked = webSearchEnabled,
+                    onCheckedChange = {
+                        webSearchEnabled = it
+                        AiPreferences.setWebSearchEnabled(context, it)
+                    },
+                    enabled = webSearchSupported
+                )
+            }
 
             Spacer(Modifier.height(12.dp))
 
-            Text("OpenAI model", style = MaterialTheme.typography.bodyLarge)
+            Text("Model presets (Low / High)", style = MaterialTheme.typography.bodyLarge)
             Text(
                 "Used when OPENAI_API_KEY is set (otherwise Gemini is used).",
                 style = MaterialTheme.typography.bodySmall,
@@ -1357,30 +1427,31 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
 
             ExposedDropdownMenuBox(
-                expanded = openAiModelExpanded,
-                onExpandedChange = { openAiModelExpanded = !openAiModelExpanded }
+                expanded = openAiModelLowExpanded,
+                onExpandedChange = { openAiModelLowExpanded = !openAiModelLowExpanded }
             ) {
                 OutlinedTextField(
-                    value = openAiModel,
+                    value = openAiModelLow,
                     onValueChange = {},
                     readOnly = true,
                     modifier = Modifier
                         .fillMaxWidth()
                         .menuAnchor(),
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = openAiModelExpanded) }
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = openAiModelLowExpanded) },
+                    label = { Text("Low preset model") }
                 )
 
 	                ExposedDropdownMenu(
-	                    expanded = openAiModelExpanded,
-	                    onDismissRequest = { openAiModelExpanded = false }
+	                    expanded = openAiModelLowExpanded,
+	                    onDismissRequest = { openAiModelLowExpanded = false }
 	                ) {
 	                    AiPreferences.getOpenAiModelOptions(openAiApiType).forEach { model ->
 	                        DropdownMenuItem(
 	                            text = { Text(model) },
 	                            onClick = {
-	                                openAiModel = model
-	                                AiPreferences.setOpenAiModel(context, model)
-                                openAiModelExpanded = false
+	                                openAiModelLow = model
+	                                AiPreferences.setOpenAiModel(context, model, AiModelPreset.LOW)
+                                openAiModelLowExpanded = false
                             }
                         )
                     }
@@ -1388,7 +1459,7 @@ fun SettingsScreen(
             }
             
             Spacer(Modifier.height(12.dp))
-            Text("Reasoning Effort", style = MaterialTheme.typography.bodyLarge)
+            Text("Low preset reasoning effort", style = MaterialTheme.typography.bodyLarge)
             Text(
                 "Adjust the depth of AI thinking.",
                 style = MaterialTheme.typography.bodySmall,
@@ -1397,30 +1468,30 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
             
             ExposedDropdownMenuBox(
-                expanded = reasoningLevelExpanded,
-                onExpandedChange = { reasoningLevelExpanded = !reasoningLevelExpanded }
+                expanded = reasoningLevelLowExpanded,
+                onExpandedChange = { reasoningLevelLowExpanded = !reasoningLevelLowExpanded }
             ) {
                 OutlinedTextField(
-                    value = reasoningLevel.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() },
+                    value = reasoningLevelLow.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() },
                     onValueChange = {},
                     readOnly = true,
                     modifier = Modifier
                         .fillMaxWidth()
                         .menuAnchor(),
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = reasoningLevelExpanded) }
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = reasoningLevelLowExpanded) }
                 )
 
                 ExposedDropdownMenu(
-                    expanded = reasoningLevelExpanded,
-                    onDismissRequest = { reasoningLevelExpanded = false }
+                    expanded = reasoningLevelLowExpanded,
+                    onDismissRequest = { reasoningLevelLowExpanded = false }
                 ) {
                     reasoningOptions.forEach { level ->
                         DropdownMenuItem(
                             text = { Text(level.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() }) },
                             onClick = {
-                                reasoningLevel = level
-                                AiPreferences.setReasoningLevel(context, level)
-                                reasoningLevelExpanded = false
+                                reasoningLevelLow = level
+                                AiPreferences.setReasoningLevel(context, level, AiModelPreset.LOW)
+                                reasoningLevelLowExpanded = false
                             }
                         )
                     }
@@ -1429,7 +1500,86 @@ fun SettingsScreen(
             
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "Estimated Cost: ${AiPreferences.getEstimatedCost(context)}",
+                text = "Low preset estimated cost: ${AiPreferences.getEstimatedCost(context, AiModelPreset.LOW)}",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            Text("High preset model", style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(8.dp))
+
+            ExposedDropdownMenuBox(
+                expanded = openAiModelHighExpanded,
+                onExpandedChange = { openAiModelHighExpanded = !openAiModelHighExpanded }
+            ) {
+                OutlinedTextField(
+                    value = openAiModelHigh,
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(),
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = openAiModelHighExpanded) }
+                )
+
+                ExposedDropdownMenu(
+                    expanded = openAiModelHighExpanded,
+                    onDismissRequest = { openAiModelHighExpanded = false }
+                ) {
+                    AiPreferences.getOpenAiModelOptions(openAiApiType).forEach { model ->
+                        DropdownMenuItem(
+                            text = { Text(model) },
+                            onClick = {
+                                openAiModelHigh = model
+                                AiPreferences.setOpenAiModel(context, model, AiModelPreset.HIGH)
+                                openAiModelHighExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text("High preset reasoning effort", style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(8.dp))
+
+            ExposedDropdownMenuBox(
+                expanded = reasoningLevelHighExpanded,
+                onExpandedChange = { reasoningLevelHighExpanded = !reasoningLevelHighExpanded }
+            ) {
+                OutlinedTextField(
+                    value = reasoningLevelHigh.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() },
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(),
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = reasoningLevelHighExpanded) }
+                )
+
+                ExposedDropdownMenu(
+                    expanded = reasoningLevelHighExpanded,
+                    onDismissRequest = { reasoningLevelHighExpanded = false }
+                ) {
+                    reasoningOptions.forEach { level ->
+                        DropdownMenuItem(
+                            text = { Text(level.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() }) },
+                            onClick = {
+                                reasoningLevelHigh = level
+                                AiPreferences.setReasoningLevel(context, level, AiModelPreset.HIGH)
+                                reasoningLevelHighExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "High preset estimated cost: ${AiPreferences.getEstimatedCost(context, AiModelPreset.HIGH)}",
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -1997,9 +2147,13 @@ fun DaySummaryCard(daySummaryCount: Int, onClick: () -> Unit) {
 @Composable
 fun LogItem(log: LogEntity, onClick: () -> Unit) {
     val analysisTitle = remember(log.analysisResults) { latestAiAnalysis(log.analysisResults)?.title?.trim() }
-    val displayText = analysisTitle?.takeIf { it.isNotBlank() }
-        ?: log.note.takeIf { it.isNotBlank() }
-        ?: "No details"
+    val displayText = if (log.isPrivate) {
+        "Private entry"
+    } else {
+        analysisTitle?.takeIf { it.isNotBlank() }
+            ?: log.note.takeIf { it.isNotBlank() }
+            ?: "No details"
+    }
     val isAnalyzing = log.analysisStatus == AiAnalysisStatus.PENDING
 
     Card(

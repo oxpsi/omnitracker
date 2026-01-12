@@ -16,7 +16,8 @@ import java.util.Locale
 class OpenAIProvider(
     private val apiKey: String = BuildConfig.OPENAI_API_KEY,
     private val model: String = "gpt-4.1",
-    private val apiType: OpenAiApiType = OpenAiApiType.RESPONSES
+    private val apiType: OpenAiApiType = OpenAiApiType.RESPONSES,
+    private val enableWebSearch: Boolean = false
 ) : AiProvider {
 
     override suspend fun analyzeLog(imageFile: File?, note: String, userId: String, reasoningLevel: String): Result<String> = withContext(Dispatchers.IO) {
@@ -33,7 +34,14 @@ class OpenAIProvider(
 
         val (url, requestBody) = when (apiType) {
             OpenAiApiType.RESPONSES -> {
-                URL("https://api.openai.com/v1/responses") to buildResponsesRequestBody(base64Image, mimeType, note, userId, reasoningLevel)
+                URL("https://api.openai.com/v1/responses") to buildResponsesRequestBody(
+                    base64Image,
+                    mimeType,
+                    note,
+                    userId,
+                    reasoningLevel,
+                    enableWebSearch
+                )
             }
             OpenAiApiType.COMPLETIONS -> {
                 URL("https://api.openai.com/v1/chat/completions") to buildChatCompletionsRequestBody(base64Image, mimeType, note, userId, reasoningLevel)
@@ -139,7 +147,14 @@ class OpenAIProvider(
         return Gson().toJson(request)
     }
 
-    private fun buildResponsesRequestBody(base64Image: String?, mimeType: String?, note: String, userId: String, reasoningLevel: String): String {
+    private fun buildResponsesRequestBody(
+        base64Image: String?,
+        mimeType: String?,
+        note: String,
+        userId: String,
+        reasoningLevel: String,
+        enableWebSearch: Boolean
+    ): String {
         val prompt = AiPrompts.getAnalysisPrompt(note)
         val schemaStructure = AiPrompts.getAnalysisSchemaStructure()
 
@@ -181,6 +196,15 @@ class OpenAIProvider(
             ),
             "safety_identifier" to userId
         )
+
+        if (enableWebSearch) {
+            request["tools"] = listOf(
+                mapOf(
+                    "type" to "web_search"
+                )
+            )
+            request["tool_choice"] = "auto"
+        }
 
         if (supportsReasoningParam) {
             request["reasoning"] = mapOf("effort" to reasoningLevel)

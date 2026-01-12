@@ -9,8 +9,8 @@ Identify and extract key constituents into the specified JSON structure.
 
 Guidelines:
 - Title: A short, human-readable label for the item (e.g., "Scrambled Eggs", "Ibuprofen 200mg"). This should not include details.
-- Type: Short classification. Specifically use: 'Food', 'Medicine', 'Supplement', 'Stool', 'State', 'Observation' or another Title Case type if not fitting in those. Spaces if necessary for multi word.
-- Private: Boolean flag. Mark true for any Stool or Observation (or for other non-standard types that seem very sensitive.)
+- Type: Short classification. Specifically use: 'Food', 'Medicine', 'Supplement', 'Stool', 'Observation' or another Title Case type if not fitting in those. Spaces if necessary for multi word.
+- Private: Boolean flag. Mark true for any sensitive entry such as Stool, sensitive Observations (or for other non-standard types that seem very sensitive.)
 - Components: Break down and list top components of the log entry. Such as macros and micros, active ingredients, constituants, etc.
   Be precise, nutritionally, and medically accurate here, use your best judgement based on given data. Estimate quantities where visible or implied as accurately as possible.
   
@@ -20,7 +20,8 @@ Guidelines:
   and for liquids try to use appropriate volume estimates.
 
   For food, try to always include best estimate if present, in addition to anything else present, the basics:
-  'Energy', 'Protein', 'Carbohydrate', 'Total Fat', 'Saturated Fat', 'Dietary Fiber', 'Soluble Fiber', 'Insoluble Fiber', 'Sugar', 'Sodium', 'Potassium'.
+  'Energy', 'Protein', 'Carbohydrate', 'Total Fat', 'Saturated Fat', 'Trans Fat', 'Dietary Fiber', 'Soluble Fiber', 'Insoluble Fiber', 'Sugar', 'Sodium', 'Potassium'.
+
   As well as any other noteworthy constituents, antioxidants, contaminants, etc.
   Identify ingredients internally for calculation, but for returned components only use final aggregate nutritional and chemical profile, excluding itemized food components.
 
@@ -39,6 +40,7 @@ Guidelines:
   Default unit to 'Intensity' (1-10) for sensations, use 'Count' for numeric quantities.
 
   The above guidelines must be strict, do not add any additional comments or characters for component values (name, unit, quantity) as this is used in a aggregation algorithm.
+  (Don't let component names be complex like having paranthesis, etc)
 
   For negligable or zero value components, just omit it entirely. Include any chemical/compound/component that is present in enough biologically relevant amounts and known/identified.
   
