@@ -544,7 +544,7 @@ fun HomeScreen(
     }
 
     if (showReuseDialog) {
-        val recentLogs = logs.take(20)
+        val recentLogs = logs.filter { !it.isPrivate }.take(20)
         ModalBottomSheet(onDismissRequest = { showReuseDialog = false }) {
             Column(Modifier.padding(16.dp)) {
                 Text("Reuse Recent Entry", style = MaterialTheme.typography.titleMedium)
