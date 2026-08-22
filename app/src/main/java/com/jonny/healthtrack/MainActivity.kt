@@ -94,6 +94,7 @@ import com.jonny.healthtrack.ai.latestAiAnalysis
 import com.jonny.healthtrack.data.AppDatabase
 import com.jonny.healthtrack.data.LogEntity
 import com.jonny.healthtrack.data.LogRepository
+import com.jonny.healthtrack.data.DatabaseStats
 import com.jonny.healthtrack.util.aggregateFoodComponents
 import com.jonny.healthtrack.util.normalizeCapturedJpegInPlace
 import com.jonny.healthtrack.util.AppThemeColor
@@ -169,78 +170,114 @@ fun HealthTrackTheme(
             darkColorScheme(
                 primary = Color(0xFF8BC34A),
                 secondary = Color(0xFFAED581),
-                tertiary = Color(0xFFDCEDC8)
+                tertiary = Color(0xFFDCEDC8),
+                primaryContainer = Color(0xFF4A6B2E),
+                secondaryContainer = Color(0xFF5A7D33),
+                tertiaryContainer = Color(0xFF6B8E3D)
             )
         } else {
             lightColorScheme(
                 primary = Color(0xFF4CAF50),
                 secondary = Color(0xFF8BC34A),
-                tertiary = Color(0xFFCDDC39)
+                tertiary = Color(0xFFCDDC39),
+                primaryContainer = Color(0xFFD7EBC4),
+                secondaryContainer = Color(0xFFE8F5DC),
+                tertiaryContainer = Color(0xFFEFF7E5)
             )
         }
         AppThemeColor.Blue -> if (darkTheme) {
             darkColorScheme(
                 primary = Color(0xFF64B5F6),
                 secondary = Color(0xFF4FC3F7),
-                tertiary = Color(0xFFB3E5FC)
+                tertiary = Color(0xFFB3E5FC),
+                primaryContainer = Color(0xFF1B5E8A),
+                secondaryContainer = Color(0xFF2273A0),
+                tertiaryContainer = Color(0xFF2D87B5)
             )
         } else {
             lightColorScheme(
                 primary = Color(0xFF2196F3),
                 secondary = Color(0xFF03A9F4),
-                tertiary = Color(0xFFB3E5FC)
+                tertiary = Color(0xFFB3E5FC),
+                primaryContainer = Color(0xFFC6DEF5),
+                secondaryContainer = Color(0xFFD4ECFB),
+                tertiaryContainer = Color(0xFFE3F3FC)
             )
         }
         AppThemeColor.Red -> if (darkTheme) {
             darkColorScheme(
                 primary = Color(0xFFE57373),
                 secondary = Color(0xFFFF8A80),
-                tertiary = Color(0xFFFFCDD2)
+                tertiary = Color(0xFFFFCDD2),
+                primaryContainer = Color(0xFF8A2A2A),
+                secondaryContainer = Color(0xFFA03030),
+                tertiaryContainer = Color(0xFFB53838)
             )
         } else {
             lightColorScheme(
                 primary = Color(0xFFF44336),
                 secondary = Color(0xFFE57373),
-                tertiary = Color(0xFFFFCDD2)
+                tertiary = Color(0xFFFFCDD2),
+                primaryContainer = Color(0xFFF5D0CC),
+                secondaryContainer = Color(0xFFFCDAD7),
+                tertiaryContainer = Color(0xFFFEE8E6)
             )
         }
         AppThemeColor.Purple -> if (darkTheme) {
             darkColorScheme(
                 primary = Color(0xFFBA68C8),
                 secondary = Color(0xFFCE93D8),
-                tertiary = Color(0xFFE1BEE7)
+                tertiary = Color(0xFFE1BEE7),
+                primaryContainer = Color(0xFF6A3A72),
+                secondaryContainer = Color(0xFF7A4482),
+                tertiaryContainer = Color(0xFF8A5092)
             )
         } else {
             lightColorScheme(
                 primary = Color(0xFF9C27B0),
                 secondary = Color(0xFFBA68C8),
-                tertiary = Color(0xFFE1BEE7)
+                tertiary = Color(0xFFE1BEE7),
+                primaryContainer = Color(0xFFEAC9EF),
+                secondaryContainer = Color(0xFFF0D9F4),
+                tertiaryContainer = Color(0xFFF5E4F8)
             )
         }
         AppThemeColor.Orange -> if (darkTheme) {
             darkColorScheme(
                 primary = Color(0xFFFFB74D),
                 secondary = Color(0xFFFFCC80),
-                tertiary = Color(0xFFFFE0B2)
+                tertiary = Color(0xFFFFE0B2),
+                primaryContainer = Color(0xFF8A5A1E),
+                secondaryContainer = Color(0xFF9D6925),
+                tertiaryContainer = Color(0xFFB0782C)
             )
         } else {
             lightColorScheme(
                 primary = Color(0xFFFF9800),
                 secondary = Color(0xFFFFB74D),
-                tertiary = Color(0xFFFFE0B2)
+                tertiary = Color(0xFFFFE0B2),
+                primaryContainer = Color(0xFFFCDDB8),
+                secondaryContainer = Color(0xFFFDE8CF),
+                tertiaryContainer = Color(0xFFFEEFE0)
             )
         }
         AppThemeColor.Teal -> if (darkTheme) {
             darkColorScheme(
                 primary = Color(0xFF4DB6AC),
                 secondary = Color(0xFF80CBC4),
-                tertiary = Color(0xFFB2DFDB)
+                tertiary = Color(0xFFB2DFDB),
+                primaryContainer = Color(0xFF1A5E58),
+                secondaryContainer = Color(0xFF227068),
+                tertiaryContainer = Color(0xFF2D827A)
             )
         } else {
             lightColorScheme(
                 primary = Color(0xFF009688),
                 secondary = Color(0xFF26A69A),
-                tertiary = Color(0xFFB2DFDB)
+                tertiary = Color(0xFFB2DFDB),
+                primaryContainer = Color(0xFFC0E8E4),
+                secondaryContainer = Color(0xFFD0EFEB),
+                tertiaryContainer = Color(0xFFE0F5F3)
             )
         }
     }
@@ -358,6 +395,9 @@ fun AppContent(
                                         onUpdate = { updatedLog ->
                                             scope.launch { repository.updateLog(updatedLog) }
                                         },
+                                        onAddLog = { file, note, lat, long, isOriginal, template ->
+                                            createLog(file, note, lat, long, isOriginal, template)
+                                        },
                                         onAnalyze = { logToAnalyze ->
                                             requestAnalysis(logToAnalyze, force = true, showErrors = true)
                                         },
@@ -456,6 +496,9 @@ fun AppContent(
                             },
                             onUpdate = { updatedLog ->
                                 scope.launch { repository.updateLog(updatedLog) }
+                            },
+                            onAddLog = { file, note, lat, long, isOriginal, template ->
+                                createLog(file, note, lat, long, isOriginal, template)
                             },
                             onAnalyze = { logToAnalyze ->
                                 requestAnalysis(logToAnalyze, force = true, showErrors = true)
@@ -1102,6 +1145,87 @@ fun DaySummaryScreen(
     }
 }
 
+private fun formatBytes(bytes: Long): String {
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    val gb = mb / 1024.0
+    return when {
+        gb >= 1 -> String.format("%.1f GB", gb)
+        mb >= 1 -> String.format("%.1f MB", mb)
+        kb >= 1 -> String.format("%.1f KB", kb)
+        else -> "$bytes B"
+    }
+}
+
+private fun formatDate(millis: Long?): String {
+    if (millis == null || millis <= 0) return "N/A"
+    val sdf = java.text.SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+    return sdf.format(java.util.Date(millis))
+}
+
+@Composable
+fun DatabaseStatsCard(repository: LogRepository) {
+    var stats by remember { mutableStateOf<DatabaseStats?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        scope.launch {
+            stats = repository.getDatabaseStats()
+            loading = false
+        }
+    }
+
+    if (loading) {
+        Text("Loading statistics...", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+        return
+    }
+
+    val s = stats
+    if (s == null || s.entryCount == 0) {
+        Text("No entries found. Database is empty.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+        return
+    }
+
+    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Total entries", style = MaterialTheme.typography.bodyMedium)
+                Text("${s.entryCount}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Entries with images", style = MaterialTheme.typography.bodyMedium)
+                Text("${s.imageCount}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Image storage", style = MaterialTheme.typography.bodyMedium)
+                Text(formatBytes(s.totalImageSizeBytes), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Earliest entry", style = MaterialTheme.typography.bodyMedium)
+                Text(formatDate(s.earliestTimestamp), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Latest entry", style = MaterialTheme.typography.bodyMedium)
+                Text(formatDate(s.latestTimestamp), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+private fun gpt56ModelLabel(model: String): String {
+    return when (model) {
+        "gpt-5.6-luna" -> "GPT-5.6 Luna (low cost)"
+        "gpt-5.6-terra" -> "GPT-5.6 Terra (balanced)"
+        "gpt-5.6-sol" -> "GPT-5.6 Sol (flagship)"
+        else -> model
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -1137,19 +1261,11 @@ fun SettingsScreen(
     var showExportDialog by remember { mutableStateOf(false) }
     var exportFilename by remember { mutableStateOf("") }
     var isFullExport by remember { mutableStateOf(false) }
+    var exportAll by remember { mutableStateOf(false) }
     
     // Default range: Last 30 days
     var exportStartDate by remember { mutableStateOf(LocalDate.now().minusDays(30)) }
     var exportEndDate by remember { mutableStateOf(LocalDate.now()) }
-
-    private fun gpt56ModelLabel(model: String): String {
-        return when (model) {
-            "gpt-5.6-luna" -> "GPT-5.6 Luna (low cost)"
-            "gpt-5.6-terra" -> "GPT-5.6 Terra (balanced)"
-            "gpt-5.6-sol" -> "GPT-5.6 Sol (flagship)"
-            else -> model
-        }
-    }
 
     // Helper to pick date
     fun showDatePicker(initialDate: LocalDate, onDatePicked: (LocalDate) -> Unit) {
@@ -1212,16 +1328,19 @@ fun SettingsScreen(
                         singleLine = true
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text("Range: ${exportStartDate} to ${exportEndDate}", style = MaterialTheme.typography.bodySmall)
+                    if (exportAll) {
+                        Text("Range: All data (no date filter)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    } else {
+                        Text("Range: ${exportStartDate} to ${exportEndDate}", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             },
             confirmButton = {
                 Button(onClick = {
                     showExportDialog = false
                     scope.launch {
-                        // Convert LocalDate to millis
-                        val startMillis = exportStartDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                        val endMillis = exportEndDate.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
+                        val startMillis = if (exportAll) 0L else exportStartDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                        val endMillis = if (exportAll) Long.MAX_VALUE else exportEndDate.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
 
                         if (isFullExport) {
                             Toast.makeText(context, "Preparing ZIP...", Toast.LENGTH_SHORT).show()
@@ -1457,9 +1576,9 @@ fun SettingsScreen(
                     AiPreferences.getOpenAiModelOptions(openAiApiType).forEach { model ->
                         DropdownMenuItem(
                             text = { Text(gpt56ModelLabel(model)) },
-	                            onClick = {
-	                                openAiModelLow = model
-	                                AiPreferences.setOpenAiModel(context, model, AiModelPreset.LOW)
+                            onClick = {
+                                openAiModelLow = model
+                                AiPreferences.setOpenAiModel(context, model, AiModelPreset.LOW)
                                 openAiModelLowExpanded = false
                             }
                         )
@@ -1540,9 +1659,9 @@ fun SettingsScreen(
                 ) {
                     AiPreferences.getOpenAiModelOptions(openAiApiType).forEach { model ->
                         DropdownMenuItem(
-	                            text = { Text(gpt56ModelLabel(model)) },
-	                            onClick = {
-	                                openAiModelHigh = model
+                            text = { Text(gpt56ModelLabel(model)) },
+                            onClick = {
+                                openAiModelHigh = model
                                 AiPreferences.setOpenAiModel(context, model, AiModelPreset.HIGH)
                                 openAiModelHighExpanded = false
                             }
@@ -1599,12 +1718,31 @@ fun SettingsScreen(
             // --- Export ---
             Text("Export Data", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(8.dp))
-            
-            // Date Range Selection
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Export all data", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Ignore date range and include everything.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+                Switch(checked = exportAll, onCheckedChange = { exportAll = it })
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Date Range Selection (disabled when exportAll is on)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = { showDatePicker(exportStartDate) { exportStartDate = it } },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    enabled = !exportAll
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Start Date", style = MaterialTheme.typography.labelSmall)
@@ -1613,7 +1751,8 @@ fun SettingsScreen(
                 }
                 OutlinedButton(
                     onClick = { showDatePicker(exportEndDate) { exportEndDate = it } },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    enabled = !exportAll
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("End Date", style = MaterialTheme.typography.labelSmall)
@@ -1683,6 +1822,13 @@ fun SettingsScreen(
 
             Divider(Modifier.padding(vertical = 16.dp))
 
+            // --- Database Stats ---
+            Text("Database Summary", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.height(8.dp))
+            DatabaseStatsCard(repository)
+
+            Divider(Modifier.padding(vertical = 16.dp))
+
             // --- Danger Zone ---
             Button(
                 onClick = { showDeleteDialog = true },
@@ -1704,6 +1850,7 @@ fun DetailScreen(
     onBack: () -> Unit,
     onDelete: () -> Unit,
     onUpdate: (LogEntity) -> Unit,
+    onAddLog: (File?, String, Double?, Double?, Boolean, LogEntity?) -> Unit,
     onAnalyze: (LogEntity) -> Unit,
     aiEnabled: Boolean,
     showBackButton: Boolean,
@@ -1712,6 +1859,7 @@ fun DetailScreen(
     val context = LocalContext.current
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showNoteEditDialog by remember { mutableStateOf(false) }
+    var showReuseNoteDialog by remember { mutableStateOf(false) }
     val analysis = remember(log.analysisResults) { latestAiAnalysis(log.analysisResults) }
     val isAnalyzing = log.analysisStatus == AiAnalysisStatus.PENDING
     
@@ -1789,6 +1937,26 @@ fun DetailScreen(
                 }
             }
         }
+    }
+
+    if (showReuseNoteDialog) {
+        NoteDialog(
+            initialNote = log.note,
+            onDismiss = { showReuseNoteDialog = false },
+            onConfirm = { note ->
+                getLastLocation(context) { lat, long ->
+                    onAddLog(
+                        if (log.imagePath.isNotEmpty()) File(log.imagePath) else null,
+                        note,
+                        lat,
+                        long,
+                        false,
+                        if (note == log.note) log else null
+                    )
+                    showReuseNoteDialog = false
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -1885,18 +2053,24 @@ fun DetailScreen(
             }
             
             Column(modifier = Modifier.padding(16.dp)) {
-                // Clickable Timestamp
-                Surface(
-                    onClick = { datePickerDialog.show() },
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                ) {
-                    Text(
-                        text = SimpleDateFormat("EEEE, MMM d, yyyy 'at' HH:mm", Locale.getDefault()).format(Date(log.timestamp)) + " ✎",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(8.dp)
-                    )
+                // Clickable Timestamp + Re-use
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        onClick = { datePickerDialog.show() },
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Text(
+                            text = SimpleDateFormat("EEEE, MMM d, yyyy 'at' HH:mm", Locale.getDefault()).format(Date(log.timestamp)) + " ✎",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    OutlinedIconButton(onClick = { showReuseNoteDialog = true }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Re-use")
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))

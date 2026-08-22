@@ -32,4 +32,19 @@ interface LogDao {
     
     @Query("DELETE FROM logs")
     suspend fun clearAll()
+
+    @Query("SELECT COUNT(*) FROM logs")
+    suspend fun getLogCount(): Int
+
+    @Query("SELECT MIN(timestamp) FROM logs")
+    suspend fun getEarliestTimestamp(): Long?
+
+    @Query("SELECT MAX(timestamp) FROM logs")
+    suspend fun getLatestTimestamp(): Long?
+
+    @Query("SELECT COUNT(*) FROM logs WHERE imagePath = :path")
+    suspend fun countByImagePath(path: String): Int
+
+    @Query("SELECT COUNT(*) FROM logs WHERE imagePath != ''")
+    suspend fun getImageCount(): Int
 }

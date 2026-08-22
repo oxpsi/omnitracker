@@ -58,6 +58,15 @@ data class ExportLogModel(
     val isPrivate: Boolean = false
 )
 
+// Lightweight statistics for sanity-check display
+data class DatabaseStats(
+    val entryCount: Int,
+    val imageCount: Int,
+    val earliestTimestamp: Long?,
+    val latestTimestamp: Long?,
+    val totalImageSizeBytes: Long
+)
+
 class LogRepository(private val context: Context, private val logDao: LogDao) {
     private val aiService = AiAnalysisService()
 
@@ -74,9 +83,12 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
     suspend fun deleteLog(log: LogEntity) {
         logDao.deleteLog(log)
         if (log.imagePath.isNotEmpty()) {
-            val file = File(log.imagePath)
-            if (file.exists()) {
-                file.delete()
+            val others = logDao.countByImagePath(log.imagePath)
+            if (others == 0) {
+                val file = File(log.imagePath)
+                if (file.exists()) {
+                    file.delete()
+                }
             }
         }
     }
@@ -189,6 +201,16 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
         }
     }
 
+    suspend fun getDatabaseStats(): DatabaseStats = withContext(Dispatchers.IO) {
+        val entryCount = logDao.getLogCount()
+        val imageCount = logDao.getImageCount()
+        val earliest = logDao.getEarliestTimestamp()
+        val latest = logDao.getLatestTimestamp()
+        val imageDir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+        val imageSize = imageDir?.listFiles()?.map { it.length() }?.sum() ?: 0L
+        DatabaseStats(entryCount, imageCount, earliest, latest, imageSize)
+    }
+
     // --- Import Logic ---
 
     suspend fun importImages(uris: List<Uri>, overwrite: Boolean) = withContext(Dispatchers.IO) {
@@ -284,14 +306,21 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
         context.contentResolver.openInputStream(uri)?.use { stream ->
             ZipInputStream(BufferedInputStream(stream)).use { zis ->
                 var entry: ZipEntry?
-                while (zis.nextEntry.also { entry = it } != null) {
+                var lineNum = 0
+                val gson = Gson()
+                while (true) {
+                    try {
+                        zis.nextEntry.also { entry = it }
+                    } catch (e: java.io.IOException) {
+                        break
+                    }
+                    if (entry == null) break
                     val name = entry!!.name
                     if (name == "data.jsonl") {
                         val reader = zis.bufferedReader()
-                        val jsonLines = reader.readLines()
-                        
-                        val gson = Gson()
-                        jsonLines.forEach { line ->
+                        var line = reader.readLine()
+                        while (line != null) {
+                            lineNum++
                             if (line.isNotBlank()) {
                                 try {
                                     val exportModel = gson.fromJson(line, ExportLogModel::class.java)
@@ -316,11 +345,12 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
                                     logDao.insertLog(log)
                                 } catch (e: Exception) { e.printStackTrace() }
                             }
+                            line = reader.readLine()
                         }
                     } else if (name.startsWith("images/") && !entry!!.isDirectory) {
                         val filename = File(name).name
                         val targetFile = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), filename)
-                        
+
                         FileOutputStream(targetFile).use { fos ->
                             val buffer = ByteArray(8192)
                             var len: Int
