@@ -1142,6 +1142,15 @@ fun SettingsScreen(
     var exportStartDate by remember { mutableStateOf(LocalDate.now().minusDays(30)) }
     var exportEndDate by remember { mutableStateOf(LocalDate.now()) }
 
+    private fun gpt56ModelLabel(model: String): String {
+        return when (model) {
+            "gpt-5.6-luna" -> "GPT-5.6 Luna (low cost)"
+            "gpt-5.6-terra" -> "GPT-5.6 Terra (balanced)"
+            "gpt-5.6-sol" -> "GPT-5.6 Sol (flagship)"
+            else -> model
+        }
+    }
+
     // Helper to pick date
     fun showDatePicker(initialDate: LocalDate, onDatePicked: (LocalDate) -> Unit) {
         val calendar = Calendar.getInstance()
@@ -1420,7 +1429,7 @@ fun SettingsScreen(
 
             Text("Model presets (Low / High)", style = MaterialTheme.typography.bodyLarge)
             Text(
-                "Used when OPENAI_API_KEY is set (otherwise Gemini is used).",
+                "GPT-5.6 family: Luna (low cost) · Terra (balanced) · Sol (flagship). Used when OPENAI_API_KEY is set (otherwise Gemini is used).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
@@ -1431,7 +1440,7 @@ fun SettingsScreen(
                 onExpandedChange = { openAiModelLowExpanded = !openAiModelLowExpanded }
             ) {
                 OutlinedTextField(
-                    value = openAiModelLow,
+                    value = gpt56ModelLabel(openAiModelLow),
                     onValueChange = {},
                     readOnly = true,
                     modifier = Modifier
@@ -1441,13 +1450,13 @@ fun SettingsScreen(
                     label = { Text("Low preset model") }
                 )
 
-	                ExposedDropdownMenu(
-	                    expanded = openAiModelLowExpanded,
-	                    onDismissRequest = { openAiModelLowExpanded = false }
-	                ) {
-	                    AiPreferences.getOpenAiModelOptions(openAiApiType).forEach { model ->
-	                        DropdownMenuItem(
-	                            text = { Text(model) },
+                ExposedDropdownMenu(
+                    expanded = openAiModelLowExpanded,
+                    onDismissRequest = { openAiModelLowExpanded = false }
+                ) {
+                    AiPreferences.getOpenAiModelOptions(openAiApiType).forEach { model ->
+                        DropdownMenuItem(
+                            text = { Text(gpt56ModelLabel(model)) },
 	                            onClick = {
 	                                openAiModelLow = model
 	                                AiPreferences.setOpenAiModel(context, model, AiModelPreset.LOW)
@@ -1516,7 +1525,7 @@ fun SettingsScreen(
                 onExpandedChange = { openAiModelHighExpanded = !openAiModelHighExpanded }
             ) {
                 OutlinedTextField(
-                    value = openAiModelHigh,
+                    value = gpt56ModelLabel(openAiModelHigh),
                     onValueChange = {},
                     readOnly = true,
                     modifier = Modifier
@@ -1531,9 +1540,9 @@ fun SettingsScreen(
                 ) {
                     AiPreferences.getOpenAiModelOptions(openAiApiType).forEach { model ->
                         DropdownMenuItem(
-                            text = { Text(model) },
-                            onClick = {
-                                openAiModelHigh = model
+	                            text = { Text(gpt56ModelLabel(model)) },
+	                            onClick = {
+	                                openAiModelHigh = model
                                 AiPreferences.setOpenAiModel(context, model, AiModelPreset.HIGH)
                                 openAiModelHighExpanded = false
                             }

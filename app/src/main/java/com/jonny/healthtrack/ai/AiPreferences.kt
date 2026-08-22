@@ -25,19 +25,17 @@ object AiPreferences {
     private const val KEY_ACTIVE_PRESET = "active_preset"
     private const val KEY_OPENAI_WEB_SEARCH_ENABLED = "openai_web_search_enabled"
 
+    // GPT-5.6 family: Luna (cost-sensitive), Terra (balanced), Sol (flagship).
     private val openAiModelOptionsCompletions: List<String> = listOf(
-        "gpt-4.1",
-        "gpt-5-nano",
-        "gpt-5-mini",
-        "gpt-5.2"
+        "gpt-5.6-luna",
+        "gpt-5.6-terra",
+        "gpt-5.6-sol"
     )
 
     private val openAiModelOptionsResponses: List<String> = listOf(
-        "gpt-4.1",
-        "gpt-5-nano",
-        "gpt-5-mini",
-        "gpt-5.2",
-        "gpt-5.2-pro"
+        "gpt-5.6-luna",
+        "gpt-5.6-terra",
+        "gpt-5.6-sol"
     )
 
     fun getOpenAiModelOptions(apiType: OpenAiApiType): List<String> {
@@ -161,33 +159,30 @@ object AiPreferences {
     fun getEstimatedCost(context: Context, preset: AiModelPreset = getActivePreset(context)): String {
         val model = getOpenAiModel(context, preset)
         val reasoning = getReasoningLevel(context, preset)
-        val costModel = model.removeSuffix("-pro")
-        
-        // Fixed cost table per user specification
-        val cost = when (costModel) {
-            "gpt-4.1" -> 0.0037
-            "gpt-5-nano" -> when (reasoning) {
-                "low" -> 0.0003
-                "medium" -> 0.0009
-                "high" -> 0.0033
-                else -> 0.0009
-            }
-            "gpt-5-mini" -> when (reasoning) {
-                "low" -> 0.0017
-                "medium" -> 0.0047
-                "high" -> 0.0167
-                else -> 0.0047
-            }
-            "gpt-5.2" -> when (reasoning) {
-                "low" -> 0.0120
-                "medium" -> 0.0330
-                "high" -> 0.1170
-                else -> 0.0330
-            }
-            else -> 0.0037 // Default fallback
+
+        // Published GPT-5.6 pricing per 1M tokens (input / output, USD)
+        val (inputPricePerM, outputPricePerM) = when (model) {
+            "gpt-5.6-luna" -> 0.20 to 1.20
+            "gpt-5.6-terra" -> 2.0 to 12.0
+            "gpt-5.6-sol" -> 5.0 to 30.0
+            else -> 2.0 to 12.0
         }
-        
-        return String.format("$%.4f / log", cost)
+
+        // Rough per-log token estimates for a photo + note analysis.
+        // Reasoning tokens are billed as output tokens.
+        val inputTokens = 1500
+        val outputTokens = 600
+        val reasoningTokens = when (reasoning) {
+            "low" -> 800
+            "medium" -> 3000
+            "high" -> 12000
+            else -> 3000
+        }
+
+        val cost = inputTokens / 1_000_000.0 * inputPricePerM +
+            (outputTokens + reasoningTokens) / 1_000_000.0 * outputPricePerM
+
+        return String.format("$%.4f / log (est.)", cost)
     }
 
     private val reasoningOptions = listOf("low", "medium", "high")
@@ -207,15 +202,14 @@ object AiPreferences {
     private fun defaultModelForPreset(preset: AiModelPreset, options: List<String>): String {
         return if (preset == AiModelPreset.LOW) {
             when {
-                "gpt-4.1" in options -> "gpt-4.1"
-                "gpt-5-nano" in options -> "gpt-5-nano"
+                "gpt-5.6-luna" in options -> "gpt-5.6-luna"
+                "gpt-5.6-terra" in options -> "gpt-5.6-terra"
                 else -> options.first()
             }
         } else {
             when {
-                "gpt-5.2-pro" in options -> "gpt-5.2-pro"
-                "gpt-5.2" in options -> "gpt-5.2"
-                "gpt-5-mini" in options -> "gpt-5-mini"
+                "gpt-5.6-sol" in options -> "gpt-5.6-sol"
+                "gpt-5.6-terra" in options -> "gpt-5.6-terra"
                 else -> options.last()
             }
         }

@@ -15,7 +15,7 @@ import java.util.Locale
 
 class OpenAIProvider(
     private val apiKey: String = BuildConfig.OPENAI_API_KEY,
-    private val model: String = "gpt-4.1",
+    private val model: String = "gpt-5.6-terra",
     private val apiType: OpenAiApiType = OpenAiApiType.RESPONSES,
     private val enableWebSearch: Boolean = false
 ) : AiProvider {
@@ -249,6 +249,8 @@ class OpenAIProvider(
     }
 
     private fun supportsReasoningEffort(model: String): Boolean {
+        // All GPT-5.x reasoning models (including the gpt-5.6 luna/terra/sol family)
+        // accept the reasoning effort parameter. Older non-reasoning models do not.
         return model.startsWith("gpt-5") || model.startsWith("o")
     }
 
