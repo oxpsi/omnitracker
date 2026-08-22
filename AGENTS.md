@@ -81,6 +81,8 @@ adb devices
 adb logcat *:E
 ```
 
+> **⚠️ After any code change:** Always do a full rebuild (`./gradlew clean installDebug`) and re-open/restart the emulator with the new build to verify changes. Do not assume a stale running app reflects your edits.
+
 ## 🍎 macOS Development Quirks
 If cloning this repo on a MacBook Pro:
 1.  **SDK Location:** Double-check `local.properties` points to `~/Library/Android/sdk`.

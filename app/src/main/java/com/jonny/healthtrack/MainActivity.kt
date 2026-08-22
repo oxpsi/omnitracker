@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.TripOrigin
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
@@ -105,6 +106,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -540,6 +542,10 @@ fun HomeScreen(
     var pendingCameraLat by rememberSaveable { mutableStateOf<Double?>(null) }
     var pendingCameraLong by rememberSaveable { mutableStateOf<Double?>(null) }
     var tempPhotoPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var showUploadNoteDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingUploadPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingUploadLat by rememberSaveable { mutableStateOf<Double?>(null) }
+    var pendingUploadLong by rememberSaveable { mutableStateOf<Double?>(null) }
     var showFabMenu by remember { mutableStateOf(false) }
     var activePreset by remember { mutableStateOf(AiPreferences.getActivePreset(context)) }
 
@@ -583,6 +589,40 @@ fun HomeScreen(
                 photoFile
             )
             cameraLauncher.launch(uri)
+        }
+    }
+
+    val uploadPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            getLastLocation(context) { lat, long ->
+                scope.launch(Dispatchers.IO) {
+                    val destFile = createImageFile(context)
+                    var copied = false
+                    try {
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            FileOutputStream(destFile).use { output -> input.copyTo(output) }
+                        }
+                        copied = true
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                    if (copied && destFile.exists() && destFile.length() > 0) {
+                        try { normalizeCapturedJpegInPlace(destFile) } catch (_: Exception) {}
+                    }
+                    withContext(Dispatchers.Main) {
+                        if (copied) {
+                            pendingUploadPath = destFile.absolutePath
+                            pendingUploadLat = lat
+                            pendingUploadLong = long
+                            showUploadNoteDialog = true
+                        } else {
+                            try { if (destFile.exists()) destFile.delete() } catch (_: Exception) {}
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -691,6 +731,27 @@ fun HomeScreen(
         )
     }
 
+    if (showUploadNoteDialog && pendingUploadPath != null) {
+        val pendingFile = File(pendingUploadPath!!)
+        NoteDialog(
+            initialNote = "",
+            onDismiss = {
+                try { if (pendingFile.exists()) pendingFile.delete() } catch (_: Exception) {}
+                pendingUploadPath = null
+                pendingUploadLat = null
+                pendingUploadLong = null
+                showUploadNoteDialog = false
+            },
+            onConfirm = { note ->
+                onAddLog(pendingFile, note, pendingUploadLat, pendingUploadLong, true, null)
+                pendingUploadPath = null
+                pendingUploadLat = null
+                pendingUploadLong = null
+                showUploadNoteDialog = false
+            }
+        )
+    }
+
     // Pure Note Dialog
     if (showNoteDialog) {
         NoteDialog(
@@ -764,6 +825,19 @@ fun HomeScreen(
                         FloatingActionButton(
                             onClick = {
                                 showFabMenu = false
+                                uploadPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        ) {
+                            Icon(Icons.Default.Upload, "Log from Gallery")
+                        }
+
+                        FloatingActionButton(
+                            onClick = {
+                                showFabMenu = false
                                 showNoteDialog = true
                             },
                             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -771,7 +845,7 @@ fun HomeScreen(
                         ) {
                             Icon(Icons.Default.Create, "Text Only")
                         }
-                        
+
                         FloatingActionButton(
                             onClick = {
                                 showFabMenu = false
