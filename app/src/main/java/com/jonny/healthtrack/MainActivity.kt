@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.QuestionMark
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.SetMeal
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -95,6 +96,7 @@ import com.jonny.healthtrack.ai.latestAiAnalysis
 import com.jonny.healthtrack.data.AppDatabase
 import com.jonny.healthtrack.data.LogEntity
 import com.jonny.healthtrack.data.LogRepository
+import com.jonny.healthtrack.data.RecipeRepository
 import com.jonny.healthtrack.data.DatabaseStats
 import com.jonny.healthtrack.util.aggregateFoodComponents
 import com.jonny.healthtrack.util.normalizeCapturedJpegInPlace
@@ -121,18 +123,21 @@ sealed class Screen {
     object Home : Screen()
     object Settings : Screen()
     object DaySummary : Screen()
+    data class Recipes(val openRecipeId: String? = null) : Screen()
     data class Detail(val logId: String) : Screen()
 }
 
 class MainActivity : ComponentActivity() {
     private lateinit var repository: LogRepository
+    private lateinit var recipeRepository: RecipeRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
         // Init Data Layer
         val db = AppDatabase.getDatabase(this)
-        repository = LogRepository(this, db.logDao())
+        repository = LogRepository(this, db.logDao(), db.recipeDao())
+        recipeRepository = RecipeRepository(this, db.recipeDao(), db.logDao())
         
         // Trigger Migration (Background)
         repository.checkAndMigrateLegacyData()
@@ -148,6 +153,7 @@ class MainActivity : ComponentActivity() {
             HealthTrackTheme(darkTheme = isDarkTheme, themeColor = themeColor) {
                 AppContent(
                     repository = repository,
+                    recipeRepository = recipeRepository,
                     isDarkTheme = isDarkTheme,
                     onToggleTheme = { isDarkTheme = !isDarkTheme },
                     themeColor = themeColor,
@@ -293,6 +299,7 @@ fun HealthTrackTheme(
 @Composable
 fun AppContent(
     repository: LogRepository,
+    recipeRepository: RecipeRepository,
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit,
     themeColor: AppThemeColor,
@@ -314,7 +321,7 @@ fun AppContent(
         }
     }
 
-	    fun createLog(file: File?, note: String, lat: Double?, long: Double?, isOriginal: Boolean, analysisSource: LogEntity? = null) {
+	    fun createLog(file: File?, note: String, lat: Double?, long: Double?, isOriginal: Boolean, analysisSource: LogEntity? = null, recipeId: String? = null) {
 	        scope.launch {
 	            val newLog = LogEntity(
 	                timestamp = System.currentTimeMillis(),
@@ -327,7 +334,8 @@ fun AppContent(
 	                analysisStatus = analysisSource?.analysisStatus,
 	                analysisModel = analysisSource?.analysisModel,
 	                analysisUpdatedAt = if (analysisSource != null) System.currentTimeMillis() else null,
-	                analysisError = analysisSource?.analysisError
+	                analysisError = analysisSource?.analysisError,
+	                recipeId = recipeId
 	            )
 	            repository.addLog(newLog)
 	            selectedDate = Instant.ofEpochMilli(newLog.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
@@ -336,7 +344,7 @@ fun AppContent(
 	            currentScreen = Screen.Detail(newLog.id)
 
 	            // Kick off analysis in the background so the UI doesn't "jump" later when analysis finishes.
-	            if (analysisSource == null && aiEnabled && (newLog.imagePath.isNotEmpty() || newLog.note.isNotBlank())) {
+	            if (analysisSource == null && aiEnabled && (newLog.imagePath.isNotEmpty() || newLog.note.isNotBlank() || newLog.recipeId != null)) {
 	                launch { repository.queueAnalysis(newLog, force = false) }
 	            }
 	        }
@@ -369,10 +377,11 @@ fun AppContent(
                         logs = logs,
                         selectedDate = selectedDate,
                         onSelectedDateChange = { selectedDate = it },
-                        onAddLog = { file, note, lat, long, isOriginal, template ->
-                            createLog(file, note, lat, long, isOriginal, template)
+                        onAddLog = { file, note, lat, long, isOriginal, template, recipeId ->
+                            createLog(file, note, lat, long, isOriginal, template, recipeId)
                         },
                         onNavigateToSettings = { toggleSettingsPane() },
+                        onNavigateToRecipes = { currentScreen = Screen.Recipes() },
                         onNavigateToDetail = { logId -> currentScreen = Screen.Detail(logId) },
                         onNavigateToDaySummary = { currentScreen = Screen.DaySummary },
                         isWideScreen = true
@@ -397,11 +406,14 @@ fun AppContent(
                                         onUpdate = { updatedLog ->
                                             scope.launch { repository.updateLog(updatedLog) }
                                         },
-                                        onAddLog = { file, note, lat, long, isOriginal, template ->
-                                            createLog(file, note, lat, long, isOriginal, template)
+                                        onAddLog = { file, note, lat, long, isOriginal, template, recipeId ->
+                                            createLog(file, note, lat, long, isOriginal, template, recipeId)
                                         },
                                         onAnalyze = { logToAnalyze ->
                                             requestAnalysis(logToAnalyze, force = true, showErrors = true)
+                                        },
+                                        onViewRecipe = { recipeId ->
+                                            currentScreen = Screen.Recipes(openRecipeId = recipeId)
                                         },
                                         aiEnabled = aiEnabled,
                                         showBackButton = false,
@@ -435,6 +447,19 @@ fun AppContent(
                                 showBackButton = false,
                                 showCloseButton = true
                             )
+                            is Screen.Recipes -> RecipesScreen(
+                                repository = recipeRepository,
+                                openRecipeId = screen.openRecipeId,
+                                onBack = { currentScreen = Screen.Home },
+                                onCreateLogFromRecipe = { recipeId, imagePath, note ->
+                                    getLastLocation(context) { lat, long ->
+                                        val imageFile = if (imagePath.isNotEmpty()) File(imagePath) else null
+                                        createLog(imageFile, note, lat, long, false, null, recipeId)
+                                    }
+                                },
+                                showBackButton = false,
+                                showCloseButton = true
+                            )
                             else -> {}
                         }
                     }
@@ -450,10 +475,11 @@ fun AppContent(
                     logs = logs,
                     selectedDate = selectedDate,
                     onSelectedDateChange = { selectedDate = it },
-                    onAddLog = { file, note, lat, long, isOriginal, template ->
-                        createLog(file, note, lat, long, isOriginal, template)
+                    onAddLog = { file, note, lat, long, isOriginal, template, recipeId ->
+                        createLog(file, note, lat, long, isOriginal, template, recipeId)
                     },
                     onNavigateToSettings = { currentScreen = Screen.Settings },
+                    onNavigateToRecipes = { currentScreen = Screen.Recipes() },
                     onNavigateToDetail = { logId -> currentScreen = Screen.Detail(logId) },
                     onNavigateToDaySummary = { currentScreen = Screen.DaySummary },
                     isWideScreen = false
@@ -467,6 +493,19 @@ fun AppContent(
                     onAiEnabledChange = { updateAiEnabled(it) },
                     onBack = { currentScreen = Screen.Home },
                     repository = repository,
+                    showBackButton = true,
+                    showCloseButton = false
+                )
+                is Screen.Recipes -> RecipesScreen(
+                    repository = recipeRepository,
+                    openRecipeId = screen.openRecipeId,
+                    onBack = { currentScreen = Screen.Home },
+                    onCreateLogFromRecipe = { recipeId, imagePath, note ->
+                        getLastLocation(context) { lat, long ->
+                            val imageFile = if (imagePath.isNotEmpty()) File(imagePath) else null
+                            createLog(imageFile, note, lat, long, false, null, recipeId)
+                        }
+                    },
                     showBackButton = true,
                     showCloseButton = false
                 )
@@ -499,11 +538,14 @@ fun AppContent(
                             onUpdate = { updatedLog ->
                                 scope.launch { repository.updateLog(updatedLog) }
                             },
-                            onAddLog = { file, note, lat, long, isOriginal, template ->
-                                createLog(file, note, lat, long, isOriginal, template)
+                            onAddLog = { file, note, lat, long, isOriginal, template, recipeId ->
+                                createLog(file, note, lat, long, isOriginal, template, recipeId)
                             },
                             onAnalyze = { logToAnalyze ->
                                 requestAnalysis(logToAnalyze, force = true, showErrors = true)
+                            },
+                            onViewRecipe = { recipeId ->
+                                currentScreen = Screen.Recipes(openRecipeId = recipeId)
                             },
                             aiEnabled = aiEnabled,
                             showBackButton = true,
@@ -525,8 +567,9 @@ fun HomeScreen(
     logs: List<LogEntity>,
     selectedDate: LocalDate,
     onSelectedDateChange: (LocalDate) -> Unit,
-    onAddLog: (File?, String, Double?, Double?, Boolean, LogEntity?) -> Unit,
+    onAddLog: (File?, String, Double?, Double?, Boolean, LogEntity?, String?) -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToRecipes: () -> Unit,
     onNavigateToDetail: (String) -> Unit,
     onNavigateToDaySummary: () -> Unit,
     isWideScreen: Boolean
@@ -696,7 +739,8 @@ fun HomeScreen(
                         lat,
                         long,
                         false, // Original = false (Reuse)
-                        if (note == template.note) template else null // Reuse analysis if note unchanged
+                        if (note == template.note) template else null, // Reuse analysis if note unchanged
+                        null
                     )
                     showReuseNoteDialog = false
                     reuseTemplateLog = null
@@ -722,7 +766,7 @@ fun HomeScreen(
                 showCameraNoteDialog = false
             },
             onConfirm = { note ->
-                onAddLog(pendingFile, note, pendingCameraLat, pendingCameraLong, true, null)
+                onAddLog(pendingFile, note, pendingCameraLat, pendingCameraLong, true, null, null)
                 pendingCameraPath = null
                 pendingCameraLat = null
                 pendingCameraLong = null
@@ -743,7 +787,7 @@ fun HomeScreen(
                 showUploadNoteDialog = false
             },
             onConfirm = { note ->
-                onAddLog(pendingFile, note, pendingUploadLat, pendingUploadLong, true, null)
+                onAddLog(pendingFile, note, pendingUploadLat, pendingUploadLong, true, null, null)
                 pendingUploadPath = null
                 pendingUploadLat = null
                 pendingUploadLong = null
@@ -759,7 +803,7 @@ fun HomeScreen(
             onDismiss = { showNoteDialog = false },
             onConfirm = { note ->
                 getLastLocation(context) { lat, long ->
-                    onAddLog(null, note, lat, long, true, null) // No image
+                    onAddLog(null, note, lat, long, true, null, null) // No image
                     showNoteDialog = false
                 }
             }
@@ -893,8 +937,13 @@ fun HomeScreen(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onNavigateToRecipes) {
+                            Icon(Icons.Default.Restaurant, contentDescription = "Recipes")
+                        }
+                        IconButton(onClick = onNavigateToSettings) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
                     }
                 }
                 
@@ -1171,7 +1220,7 @@ fun DaySummaryScreen(
                                                                     .clip(RoundedCornerShape(4.dp)),
                                                                 contentScale = ContentScale.Crop
                                                             )
-                                                            if (!log.isOriginalImage) {
+                                                            if (!log.isOriginalImage && log.recipeId == null) {
                                                                 Box(
                                                                     modifier = Modifier
                                                                         .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(topStart = 2.dp))
@@ -1924,8 +1973,9 @@ fun DetailScreen(
     onBack: () -> Unit,
     onDelete: () -> Unit,
     onUpdate: (LogEntity) -> Unit,
-    onAddLog: (File?, String, Double?, Double?, Boolean, LogEntity?) -> Unit,
+    onAddLog: (File?, String, Double?, Double?, Boolean, LogEntity?, String?) -> Unit,
     onAnalyze: (LogEntity) -> Unit,
+    onViewRecipe: (String) -> Unit,
     aiEnabled: Boolean,
     showBackButton: Boolean,
     showCloseButton: Boolean
@@ -2025,7 +2075,8 @@ fun DetailScreen(
                         lat,
                         long,
                         false,
-                        if (note == log.note) log else null
+                        if (note == log.note) log else null,
+                        null
                     )
                     showReuseNoteDialog = false
                 }
@@ -2056,6 +2107,12 @@ fun DetailScreen(
                     
                     IconButton(onClick = { showDeleteDialog = true }) {
                         Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
+                    }
+                    // Show recipe icon if this log is linked to a recipe
+                    if (log.recipeId != null) {
+                        IconButton(onClick = { onViewRecipe(log.recipeId) }) {
+                            Icon(Icons.Default.Restaurant, "View Recipe")
+                        }
                     }
                     if (showCloseButton) {
                         IconButton(onClick = onBack) {
@@ -2101,7 +2158,7 @@ fun DetailScreen(
                             modifier = Modifier.fillMaxWidth(),
                             contentScale = ContentScale.FillWidth
                         )
-                        if (!log.isOriginalImage) {
+                        if (!log.isOriginalImage && log.recipeId == null) {
                             Surface(
                                 shape = RoundedCornerShape(topStart = 8.dp),
                                 color = Color.Black.copy(alpha = 0.6f),
@@ -2458,7 +2515,7 @@ fun LogItem(log: LogEntity, onClick: () -> Unit) {
                             .background(Color.Gray),
                         contentScale = ContentScale.Crop
                     )
-                    if (!log.isOriginalImage) {
+                    if (!log.isOriginalImage && log.recipeId == null) {
                         Box(
                             modifier = Modifier
                                 .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(topStart = 4.dp))

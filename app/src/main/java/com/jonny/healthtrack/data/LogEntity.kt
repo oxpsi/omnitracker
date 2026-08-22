@@ -21,5 +21,6 @@ data class LogEntity(
     val analysisStatus: String? = null,
     val analysisError: String? = null,
     val isOriginalImage: Boolean = true,
-    val isPrivate: Boolean = false
+    val isPrivate: Boolean = false,
+    val recipeId: String? = null
 )

@@ -137,6 +137,22 @@ object ShareUtils {
         return File(cachePath, "daily_summary.png")
     }
 
+    fun shareRecipe(context: Context, title: String, content: String) {
+        val text = buildString {
+            appendLine(title.ifBlank { "Recipe" })
+            appendLine()
+            if (content.isNotBlank()) {
+                appendLine(content)
+            }
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+            putExtra(Intent.EXTRA_TITLE, title.ifBlank { "Recipe" })
+        }
+        context.startActivity(Intent.createChooser(intent, "Share Recipe"))
+    }
+
     private fun shareImage(context: Context, file: File) {
         val uri = FileProvider.getUriForFile(
             context,

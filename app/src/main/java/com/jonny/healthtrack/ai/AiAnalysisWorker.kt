@@ -19,7 +19,9 @@ class AiAnalysisWorker(
         val force = inputData.getBoolean(AiAnalysisWork.KEY_FORCE, false)
         if (logId.isBlank()) return Result.failure()
 
-        val logDao = AppDatabase.getDatabase(applicationContext).logDao()
+        val db = AppDatabase.getDatabase(applicationContext)
+        val logDao = db.logDao()
+        val recipeDao = db.recipeDao()
         val aiService = AiAnalysisService()
 
         val latest = logDao.getLogById(logId) ?: return Result.failure()
@@ -38,7 +40,8 @@ class AiAnalysisWorker(
         logDao.insertLog(pendingUpdate)
 
         val imageFile = pendingUpdate.imagePath.takeIf { it.isNotBlank() }?.let { java.io.File(it) }
-        val result = aiService.analyzeLog(applicationContext, imageFile, pendingUpdate.note)
+        val analysisText = com.jonny.healthtrack.data.buildAnalysisNote(pendingUpdate, recipeDao)
+        val result = aiService.analyzeLog(applicationContext, imageFile, analysisText)
         val now = System.currentTimeMillis()
 
         return if (result.isSuccess) {

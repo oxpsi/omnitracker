@@ -8,10 +8,11 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [LogEntity::class], version = 3, exportSchema = false)
+@Database(entities = [LogEntity::class, RecipeEntity::class], version = 5, exportSchema = false)
 @TypeConverters(RoomConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun logDao(): LogDao
+    abstract fun recipeDao(): RecipeDao
 
     companion object {
         @Volatile
@@ -44,6 +45,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS recipes (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        ingredients TEXT NOT NULL,
+                        imagePath TEXT NOT NULL DEFAULT '',
+                        createdAt INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE logs ADD COLUMN recipeId TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -51,7 +75,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "healthtrack_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
                 INSTANCE = instance
                 instance

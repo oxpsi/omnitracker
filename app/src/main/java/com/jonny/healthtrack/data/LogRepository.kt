@@ -67,8 +67,7 @@ data class DatabaseStats(
     val totalImageSizeBytes: Long
 )
 
-class LogRepository(private val context: Context, private val logDao: LogDao) {
-    private val aiService = AiAnalysisService()
+class LogRepository(private val context: Context, private val logDao: LogDao, private val recipeDao: RecipeDao) {    private val aiService = AiAnalysisService()
 
     val allLogs: Flow<List<LogEntity>> = logDao.getAllLogs()
 
@@ -83,8 +82,9 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
     suspend fun deleteLog(log: LogEntity) {
         logDao.deleteLog(log)
         if (log.imagePath.isNotEmpty()) {
-            val others = logDao.countByImagePath(log.imagePath)
-            if (others == 0) {
+            val otherLogs = logDao.countByImagePath(log.imagePath)
+            val recipeRefs = recipeDao.countByImagePath(log.imagePath)
+            if (otherLogs == 0 && recipeRefs == 0) {
                 val file = File(log.imagePath)
                 if (file.exists()) {
                     file.delete()
@@ -100,7 +100,8 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
     }
 
     suspend fun analyzeLog(log: LogEntity, force: Boolean = false): Result<LogEntity> = withContext(Dispatchers.IO) {
-        if (log.imagePath.isBlank() && log.note.isBlank()) {
+        val effectiveNote = buildAnalysisNote(log, recipeDao)
+        if (log.imagePath.isBlank() && effectiveNote.isBlank()) {
             return@withContext Result.failure(IllegalArgumentException("Nothing to analyze (missing photo and note)"))
         }
 
@@ -118,7 +119,8 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
         logDao.insertLog(pendingUpdate)
 
         val imageFile = pendingUpdate.imagePath.takeIf { it.isNotBlank() }?.let { File(it) }
-        val result = aiService.analyzeLog(context, imageFile, pendingUpdate.note)
+        val analysisText = buildAnalysisNote(pendingUpdate, recipeDao)
+        val result = aiService.analyzeLog(context, imageFile, analysisText)
         val now = System.currentTimeMillis()
 
         return@withContext if (result.isSuccess) {
@@ -153,7 +155,8 @@ class LogRepository(private val context: Context, private val logDao: LogDao) {
     }
 
     suspend fun queueAnalysis(log: LogEntity, force: Boolean = false) = withContext(Dispatchers.IO) {
-        if (log.imagePath.isBlank() && log.note.isBlank()) return@withContext
+        val effectiveNote = buildAnalysisNote(log, recipeDao)
+        if (log.imagePath.isBlank() && effectiveNote.isBlank()) return@withContext
 
         val latest = logDao.getLogById(log.id) ?: log
         if (!force && latest.analysisStatus == AiAnalysisStatus.PENDING) return@withContext
