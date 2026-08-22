@@ -63,6 +63,13 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    applicationVariants.configureEach {
+        outputs.configureEach {
+            val output = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
+            output.outputFileName = "omnitracker.apk"
+        }
+    }
 }
 
 dependencies {
