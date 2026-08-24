@@ -56,7 +56,18 @@ data class ExportLogModel(
     val analysisError: String? = null,
     val isOriginalImage: Boolean = true,
     val isPrivate: Boolean = false,
-    val quantity: Double = 1.0
+    val quantity: Double = 1.0,
+    val recipeId: String? = null
+)
+
+// Export Model for recipes (IDs preserved so log→recipe links survive round-trip)
+data class ExportRecipeModel(
+    val id: String,
+    val title: String,
+    val description: String,
+    val ingredients: String,
+    val imagePath: String = "",
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 // Lightweight statistics for sanity-check display
@@ -282,41 +293,73 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
         context.contentResolver.openInputStream(uri)?.use { stream ->
             stream.bufferedReader().useLines { lines ->
                 val gson = Gson()
+                val parsedRecipes = mutableListOf<RecipeEntity>()
+                val parsedLogs = mutableListOf<LogEntity>()
+                var inRecipesSection = false
+
                 lines.forEach { line ->
+                    if (line.isBlank()) return@forEach
+                    if (line.trim() == "# RECIPES") {
+                        inRecipesSection = true
+                        return@forEach
+                    }
                     try {
-                        val exportModel = gson.fromJson(line, ExportLogModel::class.java)
-                        val imagePath = if (exportModel.imagePath.isNotEmpty()) {
-                             File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), File(exportModel.imagePath).name).absolutePath
-                        } else ""
-                        
-                        val log = LogEntity(
-                            timestamp = exportModel.timestamp,
-                            imagePath = imagePath,
-                            note = exportModel.note,
-                            latitude = exportModel.latitude,
-                            longitude = exportModel.longitude,
-                            analysisResults = exportModel.analysis ?: parseAiAnalysis(exportModel.analysisData)?.let { listOf(it) },
-                            analysisModel = exportModel.analysisModel,
-                            analysisUpdatedAt = exportModel.analysisUpdatedAt,
-                            analysisStatus = exportModel.analysisStatus,
-                            analysisError = exportModel.analysisError,
-                            isOriginalImage = exportModel.isOriginalImage,
-                            isPrivate = exportModel.isPrivate,
-                            quantity = exportModel.quantity
-                        )
-                        logDao.insertLog(log)
+                        if (inRecipesSection) {
+                            val exportRecipe = gson.fromJson(line, ExportRecipeModel::class.java)
+                            if (exportRecipe != null && exportRecipe.id.isNotBlank()) {
+                                parsedRecipes.add(RecipeEntity(
+                                    id = exportRecipe.id,
+                                    title = exportRecipe.title,
+                                    description = exportRecipe.description,
+                                    ingredients = exportRecipe.ingredients,
+                                    imagePath = "",
+                                    createdAt = exportRecipe.createdAt
+                                ))
+                            }
+                        } else {
+                            val exportModel = gson.fromJson(line, ExportLogModel::class.java)
+                            if (exportModel != null) {
+                                val imagePath = if (exportModel.imagePath.isNotEmpty()) {
+                                     File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), File(exportModel.imagePath).name).absolutePath
+                                } else ""
+                                
+                                val log = LogEntity(
+                                    timestamp = exportModel.timestamp,
+                                    imagePath = imagePath,
+                                    note = exportModel.note,
+                                    latitude = exportModel.latitude,
+                                    longitude = exportModel.longitude,
+                                    analysisResults = exportModel.analysis ?: parseAiAnalysis(exportModel.analysisData)?.let { listOf(it) },
+                                    analysisModel = exportModel.analysisModel,
+                                    analysisUpdatedAt = exportModel.analysisUpdatedAt,
+                                    analysisStatus = exportModel.analysisStatus,
+                                    analysisError = exportModel.analysisError,
+                                    isOriginalImage = exportModel.isOriginalImage,
+                                    isPrivate = exportModel.isPrivate,
+                                    recipeId = exportModel.recipeId,
+                                    quantity = exportModel.quantity
+                                )
+                                parsedLogs.add(log)
+                            }
+                        }
                     } catch (e: Exception) { e.printStackTrace() }
                 }
+
+                // Insert recipes first (preserving IDs) so logs can reference them
+                parsedRecipes.forEach { recipeDao.insertRecipe(it) }
+                parsedLogs.forEach { logDao.insertLog(it) }
             }
         }
     }
 
     private suspend fun importZip(uri: Uri) {
+        val parsedRecipes = mutableListOf<RecipeEntity>()
+        val parsedLogs = mutableListOf<LogEntity>()
+        val gson = Gson()
+
         context.contentResolver.openInputStream(uri)?.use { stream ->
             ZipInputStream(BufferedInputStream(stream)).use { zis ->
                 var entry: ZipEntry?
-                var lineNum = 0
-                val gson = Gson()
                 while (true) {
                     try {
                         zis.nextEntry.also { entry = it }
@@ -325,53 +368,101 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
                     }
                     if (entry == null) break
                     val name = entry!!.name
-                    if (name == "data.jsonl") {
-                        val reader = zis.bufferedReader()
-                        var line = reader.readLine()
-                        while (line != null) {
-                            lineNum++
-                            if (line.isNotBlank()) {
-                                try {
-                                    val exportModel = gson.fromJson(line, ExportLogModel::class.java)
-                                    val imagePath = if (exportModel.imagePath.isNotEmpty()) {
-                                        File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), File(exportModel.imagePath).name).absolutePath
-                                    } else ""
 
-                                    val log = LogEntity(
-                                        timestamp = exportModel.timestamp,
-                                        imagePath = imagePath,
-                                        note = exportModel.note,
-                                        latitude = exportModel.latitude,
-                                        longitude = exportModel.longitude,
-                                        analysisResults = exportModel.analysis ?: parseAiAnalysis(exportModel.analysisData)?.let { listOf(it) },
-                                        analysisModel = exportModel.analysisModel,
-                                        analysisUpdatedAt = exportModel.analysisUpdatedAt,
-                                        analysisStatus = exportModel.analysisStatus,
-                                        analysisError = exportModel.analysisError,
-                                        isOriginalImage = exportModel.isOriginalImage,
-                                        isPrivate = exportModel.isPrivate,
-                                        quantity = exportModel.quantity
-                                    )
-                                    logDao.insertLog(log)
-                                } catch (e: Exception) { e.printStackTrace() }
+                    when {
+                        name == "data.jsonl" -> {
+                            val reader = zis.bufferedReader()
+                            var line = reader.readLine()
+                            while (line != null) {
+                                if (line.isNotBlank()) {
+                                    try {
+                                        val exportModel = gson.fromJson(line, ExportLogModel::class.java)
+                                        if (exportModel != null) {
+                                            val imagePath = if (exportModel.imagePath.isNotEmpty()) {
+                                                File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), File(exportModel.imagePath).name).absolutePath
+                                            } else ""
+
+                                            val log = LogEntity(
+                                                timestamp = exportModel.timestamp,
+                                                imagePath = imagePath,
+                                                note = exportModel.note,
+                                                latitude = exportModel.latitude,
+                                                longitude = exportModel.longitude,
+                                                analysisResults = exportModel.analysis ?: parseAiAnalysis(exportModel.analysisData)?.let { listOf(it) },
+                                                analysisModel = exportModel.analysisModel,
+                                                analysisUpdatedAt = exportModel.analysisUpdatedAt,
+                                                analysisStatus = exportModel.analysisStatus,
+                                                analysisError = exportModel.analysisError,
+                                                isOriginalImage = exportModel.isOriginalImage,
+                                                isPrivate = exportModel.isPrivate,
+                                                recipeId = exportModel.recipeId,
+                                                quantity = exportModel.quantity
+                                            )
+                                            parsedLogs.add(log)
+                                        }
+                                    } catch (e: Exception) { e.printStackTrace() }
+                                }
+                                line = reader.readLine()
                             }
-                            line = reader.readLine()
                         }
-                    } else if (name.startsWith("images/") && !entry!!.isDirectory) {
-                        val filename = File(name).name
-                        val targetFile = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), filename)
-
-                        FileOutputStream(targetFile).use { fos ->
-                            val buffer = ByteArray(8192)
-                            var len: Int
-                            while (zis.read(buffer).also { len = it } != -1) {
-                                fos.write(buffer, 0, len)
+                        name == "recipes.jsonl" -> {
+                            val reader = zis.bufferedReader()
+                            var line = reader.readLine()
+                            while (line != null) {
+                                if (line.isNotBlank()) {
+                                    try {
+                                        val exportRecipe = gson.fromJson(line, ExportRecipeModel::class.java)
+                                        if (exportRecipe != null && exportRecipe.id.isNotBlank()) {
+                                            parsedRecipes.add(RecipeEntity(
+                                                id = exportRecipe.id,
+                                                title = exportRecipe.title,
+                                                description = exportRecipe.description,
+                                                ingredients = exportRecipe.ingredients,
+                                                imagePath = "",
+                                                createdAt = exportRecipe.createdAt
+                                            ))
+                                        }
+                                    } catch (e: Exception) { e.printStackTrace() }
+                                }
+                                line = reader.readLine()
+                            }
+                        }
+                        name.startsWith("images/") && !entry!!.isDirectory -> {
+                            val filename = File(name).name
+                            val targetFile = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), filename)
+                            FileOutputStream(targetFile).use { fos ->
+                                val buffer = ByteArray(8192)
+                                var len: Int
+                                while (zis.read(buffer).also { len = it } != -1) {
+                                    fos.write(buffer, 0, len)
+                                }
+                            }
+                        }
+                        name.startsWith("recipe_images/") && !entry!!.isDirectory -> {
+                            val filename = File(name).name
+                            val targetFile = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), filename)
+                            FileOutputStream(targetFile).use { fos ->
+                                val buffer = ByteArray(8192)
+                                var len: Int
+                                while (zis.read(buffer).also { len = it } != -1) {
+                                    fos.write(buffer, 0, len)
+                                }
+                            }
+                            // Link the recipe to the extracted file path
+                            val recipeId = filename.removePrefix("recipe_").removeSuffix(".jpg")
+                            parsedRecipes.find { it.id == recipeId }?.let { existing ->
+                                val idx = parsedRecipes.indexOf(existing)
+                                parsedRecipes[idx] = existing.copy(imagePath = targetFile.absolutePath)
                             }
                         }
                     }
                 }
             }
         }
+
+        // Insert recipes first (preserving IDs) so logs can reference them
+        parsedRecipes.forEach { recipeDao.insertRecipe(it) }
+        parsedLogs.forEach { logDao.insertLog(it) }
     }
 
     // --- Exports ---
@@ -382,6 +473,7 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
         } else {
             logDao.getAllLogsSnapshot()
         }
+        val recipes = collectReferencedRecipes(logs)
         val exportFile = File(context.cacheDir, "$filename.jsonl")
         
         exportFile.bufferedWriter().use { writer ->
@@ -402,10 +494,29 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
                     analysisError = log.analysisError,
                     isOriginalImage = log.isOriginalImage,
                     isPrivate = log.isPrivate,
-                    quantity = log.quantity
+                    quantity = log.quantity,
+                    recipeId = log.recipeId
                 )
                 writer.write(gson.toJson(exportLog))
                 writer.newLine()
+            }
+            // Recipes section (only those referenced by exported logs)
+            if (recipes.isNotEmpty()) {
+                writer.write("# RECIPES")
+                writer.newLine()
+                recipes.forEach { recipe ->
+                    val cleanName = if (recipe.imagePath.isNotEmpty()) "recipe_${recipe.id}.jpg" else ""
+                    val exportRecipe = ExportRecipeModel(
+                        id = recipe.id,
+                        title = recipe.title,
+                        description = recipe.description,
+                        ingredients = recipe.ingredients,
+                        imagePath = cleanName,
+                        createdAt = recipe.createdAt
+                    )
+                    writer.write(gson.toJson(exportRecipe))
+                    writer.newLine()
+                }
             }
         }
         exportFile
@@ -417,6 +528,7 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
         } else {
             logDao.getAllLogsSnapshot()
         }
+        val recipes = collectReferencedRecipes(logs)
         val zipFile = File(context.cacheDir, "$filename.zip")
         val gson = Gson()
 
@@ -442,7 +554,8 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
                     analysisError = log.analysisError,
                     isOriginalImage = log.isOriginalImage,
                     isPrivate = log.isPrivate,
-                    quantity = log.quantity
+                    quantity = log.quantity,
+                    recipeId = log.recipeId
                 )
                 jsonlBuilder.append(gson.toJson(exportLog)).append("\n")
             }
@@ -471,8 +584,57 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
                     }
                 }
             }
+
+            // 3. Recipes section (only those referenced by exported logs)
+            if (recipes.isNotEmpty()) {
+                val recipeJsonlBuilder = StringBuilder()
+                recipes.forEach { recipe ->
+                    val relativePath = if (recipe.imagePath.isNotEmpty()) {
+                        "recipe_images/recipe_${recipe.id}.jpg"
+                    } else ""
+                    val exportRecipe = ExportRecipeModel(
+                        id = recipe.id,
+                        title = recipe.title,
+                        description = recipe.description,
+                        ingredients = recipe.ingredients,
+                        imagePath = relativePath,
+                        createdAt = recipe.createdAt
+                    )
+                    recipeJsonlBuilder.append(gson.toJson(exportRecipe)).append("\n")
+                }
+                zos.putNextEntry(ZipEntry("recipes.jsonl"))
+                zos.write(recipeJsonlBuilder.toString().toByteArray())
+                zos.closeEntry()
+
+                // 4. Recipe images
+                val addedRecipeImages = mutableSetOf<String>()
+                recipes.forEach { recipe ->
+                    if (recipe.imagePath.isNotEmpty()) {
+                        val imageFile = File(recipe.imagePath)
+                        if (imageFile.exists() && !addedRecipeImages.contains(recipe.imagePath)) {
+                            val zipEntryName = "recipe_images/recipe_${recipe.id}.jpg"
+                            zos.putNextEntry(ZipEntry(zipEntryName))
+                            FileInputStream(imageFile).use { fis ->
+                                BufferedInputStream(fis).copyTo(zos)
+                            }
+                            zos.closeEntry()
+                            addedRecipeImages.add(recipe.imagePath)
+                        }
+                    }
+                }
+            }
         }
         zipFile
+    }
+
+    /**
+     * Collects recipes referenced by the given logs (deduped by ID).
+     * Returns only recipes that actually exist in the DB.
+     */
+    private suspend fun collectReferencedRecipes(logs: List<LogEntity>): List<RecipeEntity> {
+        val recipeIds = logs.mapNotNull { it.recipeId }.distinct()
+        if (recipeIds.isEmpty()) return emptyList()
+        return recipeDao.getRecipesByIds(recipeIds)
     }
 
     private fun getCleanFilename(timestamp: Long): String {

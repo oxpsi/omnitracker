@@ -13,6 +13,12 @@ interface RecipeDao {
     @Query("SELECT * FROM recipes ORDER BY createdAt DESC")
     fun getAllRecipes(): Flow<List<RecipeEntity>>
 
+    @Query("SELECT * FROM recipes WHERE id IN (:ids)")
+    suspend fun getRecipesByIds(ids: List<String>): List<RecipeEntity>
+
+    @Query("SELECT * FROM recipes ORDER BY createdAt DESC")
+    suspend fun getAllRecipesSnapshot(): List<RecipeEntity>
+
     @Query("SELECT * FROM recipes WHERE id = :id")
     suspend fun getRecipeById(id: String): RecipeEntity?
 
