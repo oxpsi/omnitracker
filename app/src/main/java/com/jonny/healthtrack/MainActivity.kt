@@ -113,8 +113,7 @@ import com.jonny.healthtrack.util.normalizeCapturedJpegInPlace
 import com.jonny.healthtrack.util.AppThemeColor
 import com.jonny.healthtrack.util.ThemePreferences
 import com.jonny.healthtrack.util.ShareUtils
-import com.jonny.healthtrack.util.createThemedRecipeThumbnail
-import com.jonny.healthtrack.util.primaryColorArgb
+import androidx.compose.runtime.CompositionLocalProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -322,8 +321,12 @@ fun AppContent(
     var aiEnabled by remember { mutableStateOf(AiPreferences.isEnabled(context)) }
     
     val logs by repository.allLogs.collectAsState(initial = emptyList())
+    val recipes by recipeRepository.allRecipes.collectAsState(initial = emptyList())
+    val recipeImageMap = remember(recipes) { recipes.associate { it.id to it.imagePath }.filterValues { it.isNotEmpty() } }
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+
+    CompositionLocalProvider(LocalRecipeImages provides recipeImageMap) {
 
     fun toggleSettingsPane() {
         if (currentScreen is Screen.Settings) {
@@ -364,29 +367,13 @@ fun AppContent(
 
     /**
      * Creates a log entry from a recipe. When [imagePath] is empty (the user
-     * chose "note only"), a themed thumbnail is derived from the recipe's batch
-     * image (scaled down and framed with the active theme color) so the log
-     * entry still has a recognizable image.
+     * chose "note only"), no file is written: the log's imagePath stays empty
+     * (so it behaves like a text log w.r.t. Save to Gallery), and a themed
+     * thumbnail derived from the recipe image is rendered dynamically in the UI.
      */
     fun createLogFromRecipe(recipeId: String, imagePath: String, note: String) {
         scope.launch {
-            val imageFile = if (imagePath.isNotEmpty()) {
-                File(imagePath)
-            } else {
-                withContext(Dispatchers.IO) {
-                    val recipe = recipeRepository.getRecipeById(recipeId)
-                    val recipeImage = recipe?.imagePath?.takeIf { it.isNotEmpty() }?.let { File(it) }
-                    if (recipeImage != null && recipeImage.exists()) {
-                        val outline = primaryColorArgb(themeColor, isDarkTheme)
-                        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                        val thumbFile = File(
-                            context.getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: File(context.filesDir, "pictures"),
-                            "JPEG_${stamp}_thumb.jpg"
-                        )
-                        createThemedRecipeThumbnail(recipeImage, thumbFile, outline)
-                    } else null
-                }
-            }
+            val imageFile = imagePath.takeIf { it.isNotEmpty() }?.let { File(it) }
             getLastLocation(context) { lat, long ->
                 createLog(imageFile, note, lat, long, false, null, recipeId)
             }
@@ -594,6 +581,7 @@ fun AppContent(
                 }
             }
         }
+    }
     }
 }
 
@@ -1235,7 +1223,25 @@ fun DaySummaryScreen(
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
                                                     // Thumbnail
-                                                    if (log.imagePath.isEmpty()) {
+                                                    if (log.imagePath.isEmpty() && log.recipeId != null && !log.isPrivate) {
+                                                        val recipeImg = LocalRecipeImages.current[log.recipeId]
+                                                        if (recipeImg != null) {
+                                                            RecipeDerivedThumbnail(
+                                                                recipeImagePath = recipeImg,
+                                                                modifier = Modifier.size(32.dp),
+                                                                cornerRadius = 4.dp
+                                                            )
+                                                        } else {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(32.dp)
+                                                                    .background(MaterialTheme.colorScheme.secondary, RoundedCornerShape(4.dp)),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Text("T", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                            }
+                                                        }
+                                                    } else if (log.imagePath.isEmpty()) {
                                                         Box(
                                                             modifier = Modifier
                                                                 .size(32.dp)
@@ -2180,7 +2186,22 @@ fun DetailScreen(
         ) {
             // Main Image Box
             Box(Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 400.dp).background(Color.LightGray)) {
-                if (log.imagePath.isEmpty()) {
+                if (log.imagePath.isEmpty() && log.recipeId != null && !log.isPrivate) {
+                    val recipeImg = LocalRecipeImages.current[log.recipeId]
+                    if (recipeImg != null) {
+                        RecipeDerivedThumbnail(
+                            recipeImagePath = recipeImg,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 400.dp)
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.matchParentSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("No Image (Text Log)", color = Color.Gray)
+                        }
+                    }
+                } else if (log.imagePath.isEmpty()) {
                      Box(
                         modifier = Modifier.matchParentSize(),
                         contentAlignment = Alignment.Center
@@ -2605,16 +2626,25 @@ fun LogItem(log: LogEntity, onClick: () -> Unit) {
                 .height(80.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (log.imagePath.isEmpty()) {
-                 Box(
-                    modifier = Modifier
-                        .width(80.dp)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.secondary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("T", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+            if (log.imagePath.isEmpty() && log.recipeId != null && !log.isPrivate) {
+                val recipeImg = LocalRecipeImages.current[log.recipeId]
+                if (recipeImg != null) {
+                    RecipeDerivedThumbnail(
+                        recipeImagePath = recipeImg,
+                        modifier = Modifier.width(80.dp).fillMaxHeight()
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .width(80.dp)
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.secondary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("T", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                    }
                 }
+            } else if (log.imagePath.isEmpty()) {
             } else if (log.isPrivate) {
                 Box(
                     modifier = Modifier

@@ -43,6 +43,7 @@ import com.jonny.healthtrack.data.RecipeEntity
 import com.jonny.healthtrack.data.RecipeRepository
 import com.jonny.healthtrack.util.ShareUtils
 import com.jonny.healthtrack.util.normalizeCapturedJpegInPlace
+import com.jonny.healthtrack.exportImageToGallery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -452,9 +453,12 @@ private fun RecipeEditorContent(
     onNewLog: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var title by remember { mutableStateOf(initial?.title ?: "") }
     var content by remember { mutableStateOf(initial?.description ?: "") }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showPhotoSourceSheet by remember { mutableStateOf(false) }
+    var tempCameraPath by rememberSaveable { mutableStateOf<String?>(null) }
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -476,11 +480,60 @@ private fun RecipeEditorContent(
                 e.printStackTrace()
             }
             if (copied && destFile.exists() && destFile.length() > 0) {
+                try { normalizeCapturedJpegInPlace(destFile) } catch (_: Exception) {}
                 onImagePathChange(destFile.absolutePath)
             } else {
                 try { if (destFile.exists()) destFile.delete() } catch (_: Exception) {}
             }
         }
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        val tempPath = tempCameraPath
+        if (success && !tempPath.isNullOrBlank()) {
+            scope.launch(Dispatchers.IO) {
+                val capturedFile = File(tempPath)
+                val normalized = normalizeCapturedJpegInPlace(capturedFile)
+                withContext(Dispatchers.Main) {
+                    onImagePathChange(normalized.absolutePath)
+                }
+            }
+        }
+        tempCameraPath = null
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
+        if (cameraGranted) {
+            val photoFile = createImageFile(context)
+            tempCameraPath = photoFile.absolutePath
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                photoFile
+            )
+            cameraLauncher.launch(uri)
+        }
+    }
+
+    if (showPhotoSourceSheet) {
+        RecipePhotoSourceSheet(
+            onDismiss = { showPhotoSourceSheet = false },
+            onCapture = {
+                showPhotoSourceSheet = false
+                cameraPermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA))
+            },
+            onUpload = {
+                showPhotoSourceSheet = false
+                imagePicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            }
+        )
     }
 
     if (showDeleteDialog) {
@@ -543,11 +596,7 @@ private fun RecipeEditorContent(
                     .height(200.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable {
-                        imagePicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
+                    .clickable { showPhotoSourceSheet = true },
                 contentAlignment = Alignment.Center
             ) {
                 if (imgPath != null && imgPath.isNotEmpty()) {
@@ -583,6 +632,22 @@ private fun RecipeEditorContent(
                 }
             }
 
+            if (pendingImagePath != null && pendingImagePath!!.isNotEmpty()) {
+                Button(
+                    onClick = {
+                        val file = File(pendingImagePath!!)
+                        if (file.exists()) {
+                            exportImageToGallery(context, file)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Save to Gallery")
+                }
+            }
+
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
@@ -605,7 +670,7 @@ private fun RecipeEditorContent(
                     onSave(title.trim(), content.trim(), path)
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = title.isNotBlank()
+                enabled = true
             ) {
                 Icon(Icons.Default.Edit, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -770,4 +835,40 @@ private fun NewLogFromRecipeDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RecipePhotoSourceSheet(
+    onDismiss: () -> Unit,
+    onCapture: () -> Unit,
+    onUpload: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Add Photo", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Take a new photo or choose one from your gallery.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+            Spacer(Modifier.height(20.dp))
+
+            EntryOptionRow(
+                icon = Icons.Default.Add,
+                label = "Capture Photo",
+                description = "Take a new photo with the camera",
+                onClick = onCapture
+            )
+            Spacer(Modifier.height(8.dp))
+            EntryOptionRow(
+                icon = Icons.Default.Upload,
+                label = "Upload Photo",
+                description = "Choose from gallery",
+                onClick = onUpload
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+    }
 }
