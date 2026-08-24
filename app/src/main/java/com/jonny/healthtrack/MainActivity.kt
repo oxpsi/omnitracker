@@ -113,6 +113,8 @@ import com.jonny.healthtrack.util.normalizeCapturedJpegInPlace
 import com.jonny.healthtrack.util.AppThemeColor
 import com.jonny.healthtrack.util.ThemePreferences
 import com.jonny.healthtrack.util.ShareUtils
+import com.jonny.healthtrack.util.createThemedRecipeThumbnail
+import com.jonny.healthtrack.util.primaryColorArgb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -360,6 +362,37 @@ fun AppContent(
 	        }
 	    }
 
+    /**
+     * Creates a log entry from a recipe. When [imagePath] is empty (the user
+     * chose "note only"), a themed thumbnail is derived from the recipe's batch
+     * image (scaled down and framed with the active theme color) so the log
+     * entry still has a recognizable image.
+     */
+    fun createLogFromRecipe(recipeId: String, imagePath: String, note: String) {
+        scope.launch {
+            val imageFile = if (imagePath.isNotEmpty()) {
+                File(imagePath)
+            } else {
+                withContext(Dispatchers.IO) {
+                    val recipe = recipeRepository.getRecipeById(recipeId)
+                    val recipeImage = recipe?.imagePath?.takeIf { it.isNotEmpty() }?.let { File(it) }
+                    if (recipeImage != null && recipeImage.exists()) {
+                        val outline = primaryColorArgb(themeColor, isDarkTheme)
+                        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                        val thumbFile = File(
+                            context.getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: File(context.filesDir, "pictures"),
+                            "JPEG_${stamp}_thumb.jpg"
+                        )
+                        createThemedRecipeThumbnail(recipeImage, thumbFile, outline)
+                    } else null
+                }
+            }
+            getLastLocation(context) { lat, long ->
+                createLog(imageFile, note, lat, long, false, null, recipeId)
+            }
+        }
+    }
+
     fun updateAiEnabled(enabled: Boolean) {
         aiEnabled = enabled
         AiPreferences.setEnabled(context, enabled)
@@ -462,10 +495,7 @@ fun AppContent(
                                 openRecipeId = screen.openRecipeId,
                                 onBack = { currentScreen = Screen.Home },
                                 onCreateLogFromRecipe = { recipeId, imagePath, note ->
-                                    getLastLocation(context) { lat, long ->
-                                        val imageFile = if (imagePath.isNotEmpty()) File(imagePath) else null
-                                        createLog(imageFile, note, lat, long, false, null, recipeId)
-                                    }
+                                    createLogFromRecipe(recipeId, imagePath, note)
                                 },
                                 showBackButton = false,
                                 showCloseButton = true
@@ -511,10 +541,7 @@ fun AppContent(
                     openRecipeId = screen.openRecipeId,
                     onBack = { currentScreen = Screen.Home },
                     onCreateLogFromRecipe = { recipeId, imagePath, note ->
-                        getLastLocation(context) { lat, long ->
-                            val imageFile = if (imagePath.isNotEmpty()) File(imagePath) else null
-                            createLog(imageFile, note, lat, long, false, null, recipeId)
-                        }
+                        createLogFromRecipe(recipeId, imagePath, note)
                     },
                     showBackButton = true,
                     showCloseButton = false

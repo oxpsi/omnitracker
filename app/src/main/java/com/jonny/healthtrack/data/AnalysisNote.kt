@@ -11,20 +11,28 @@ data class LabeledImage(val file: File, val label: String)
 /**
  * Builds the note text used as input for AI analysis.
  *
- * For logs linked to a recipe, the recipe's description is appended (with a
- * "From Batch:" header) so the model understands the full context of the batch
- * the portion was taken from. Logs without a recipe are returned unchanged.
+ * For logs linked to a recipe, the recipe's title (as a "From Batch:" header)
+ * and description are appended so the model understands the full context of the
+ * batch the portion was taken from. Logs without a recipe are returned unchanged.
  */
 suspend fun buildAnalysisNote(log: LogEntity, recipeDao: RecipeDao): String {
     val base = log.note
     val recipeId = log.recipeId ?: return base
     val recipe = recipeDao.getRecipeById(recipeId) ?: return base
+    val title = recipe.title
     val desc = recipe.description
-    if (desc.isBlank()) return base
+    if (title.isBlank() && desc.isBlank()) return base
+    val batchHeader = if (title.isNotBlank()) "From Batch: $title" else "From Batch:"
+    val batchText = buildString {
+        append(batchHeader)
+        if (desc.isNotBlank()) {
+            append('\n').append(desc)
+        }
+    }
     return if (base.isNotBlank()) {
-        "$base\n\nFrom Batch:\n$desc"
+        "$base\n\n$batchText"
     } else {
-        "From Batch:\n$desc"
+        batchText
     }
 }
 
