@@ -22,5 +22,7 @@ data class LogEntity(
     val analysisError: String? = null,
     val isOriginalImage: Boolean = true,
     val isPrivate: Boolean = false,
-    val recipeId: String? = null
+    val recipeId: String? = null,
+    @ColumnInfo(name = "quantity", defaultValue = "1.0")
+    val quantity: Double = 1.0
 )

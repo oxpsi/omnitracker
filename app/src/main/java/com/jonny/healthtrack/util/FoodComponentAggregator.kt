@@ -76,9 +76,10 @@ fun aggregateFoodComponents(logs: List<LogEntity>): List<AggregatedComponent> {
 
             val unit = component.unit?.trim()?.lowercase(Locale.US)?.ifBlank { null }
             val quantity = component.quantity ?: continue
+            val scaled = quantity * log.quantity
 
             val key = name to unit
-            componentMap.getOrPut(key) { mutableListOf() }.add(ComponentSource(log.id, quantity))
+            componentMap.getOrPut(key) { mutableListOf() }.add(ComponentSource(log.id, scaled))
         }
     }
 

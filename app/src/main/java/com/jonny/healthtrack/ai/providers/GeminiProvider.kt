@@ -5,34 +5,32 @@ import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.jonny.healthtrack.BuildConfig
 import com.jonny.healthtrack.ai.AiPrompts
+import com.jonny.healthtrack.util.encodeImageForAiUpload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.Locale
 
 class GeminiProvider(
     private val apiKey: String = BuildConfig.GEMINI_API_KEY,
     private val model: String = BuildConfig.GEMINI_MODEL
 ) : AiProvider {
 
-    override suspend fun analyzeLog(imageFile: File?, note: String, userId: String, reasoningLevel: String): Result<String> = withContext(Dispatchers.IO) {
+    override suspend fun analyzeLog(imageFiles: List<File>, note: String, userId: String, reasoningLevel: String): Result<String> = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) return@withContext Result.failure(IllegalStateException("Missing Gemini API key"))
 
-        val base64Image = if (imageFile != null) {
-            if (!imageFile.exists()) return@withContext Result.failure(IllegalArgumentException("Image file not found"))
-            val imageBytes = imageFile.readBytes()
-            Base64.encodeToString(imageBytes, Base64.NO_WRAP)
-        } else {
-            null
+        // Encode each provided image (downscaled/capped to a sane size) as JPEG.
+        val encodedImages: List<Pair<String, String>> = imageFiles.mapNotNull { file ->
+            if (!file.exists()) return@mapNotNull null
+            val bytes = encodeImageForAiUpload(file) ?: return@mapNotNull null
+            Base64.encodeToString(bytes, Base64.NO_WRAP) to "image/jpeg"
         }
-        val mimeType = if (imageFile != null) guessMimeType(imageFile) else null
 
         // Inject reasoning level instruction into the note/prompt as Gemini doesn't have a parameter for it in this API version
         val enhancedNote = "$note\n\n(Please apply $reasoningLevel reasoning effort for this analysis)"
         
-        val requestBody = buildRequestBody(base64Image, mimeType, enhancedNote)
+        val requestBody = buildRequestBody(encodedImages, enhancedNote)
         val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
         val connection = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -69,17 +67,17 @@ class GeminiProvider(
         }
     }
 
-    private fun buildRequestBody(base64Image: String?, mimeType: String?, note: String): String {
+    private fun buildRequestBody(images: List<Pair<String, String>>, note: String): String {
         val prompt = AiPrompts.getAnalysisPrompt(note)
 
         val parts = buildList {
             add(mapOf("text" to prompt))
-            if (!base64Image.isNullOrBlank() && !mimeType.isNullOrBlank()) {
+            for ((base64, mimeType) in images) {
                 add(
                     mapOf(
                         "inlineData" to mapOf(
                             "mimeType" to mimeType,
-                            "data" to base64Image
+                            "data" to base64
                         )
                     )
                 )
@@ -110,14 +108,5 @@ class GeminiProvider(
         val text = parts[0].asJsonObject.get("text")?.asString
         if (text.isNullOrBlank()) throw IllegalStateException("Empty response text")
         return text
-    }
-
-    private fun guessMimeType(file: File): String {
-        return when (file.extension.lowercase(Locale.US)) {
-            "jpg", "jpeg" -> "image/jpeg"
-            "png" -> "image/png"
-            "webp" -> "image/webp"
-            else -> "application/octet-stream"
-        }
     }
 }

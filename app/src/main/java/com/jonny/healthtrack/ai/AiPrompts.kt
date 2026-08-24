@@ -4,8 +4,10 @@ object AiPrompts {
     fun getAnalysisPrompt(note: String): String {
         val safeNote = if (note.isBlank()) "(no note)" else note
         return """
-Analyze the provided image taking into account the user's note.
-Identify and extract key constituents into the specified JSON structure.
+Analyze the provided image(s) taking into account the user's note.
+Where multiple images are supplied, they are identified by 1-based labels
+(e.g. "Image 1: Batch", "Image 2: Log entry") included above the note. "Batch" generally means like a recipe/label/etc. "Log/Entry" is specific to the individual log entry.
+Identify and extract constituents into the specified JSON structure.
 
 Guidelines:
 - Title: A short, human-readable label for the item (e.g., "Scrambled Eggs", "Ibuprofen 200mg"). This should not include details.

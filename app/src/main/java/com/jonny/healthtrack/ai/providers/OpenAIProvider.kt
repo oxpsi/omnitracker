@@ -6,12 +6,12 @@ import com.google.gson.JsonParser
 import com.jonny.healthtrack.BuildConfig
 import com.jonny.healthtrack.ai.AiPrompts
 import com.jonny.healthtrack.ai.OpenAiApiType
+import com.jonny.healthtrack.util.encodeImageForAiUpload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.Locale
 
 class OpenAIProvider(
     private val apiKey: String = BuildConfig.OPENAI_API_KEY,
@@ -20,23 +20,20 @@ class OpenAIProvider(
     private val enableWebSearch: Boolean = false
 ) : AiProvider {
 
-    override suspend fun analyzeLog(imageFile: File?, note: String, userId: String, reasoningLevel: String): Result<String> = withContext(Dispatchers.IO) {
+    override suspend fun analyzeLog(imageFiles: List<File>, note: String, userId: String, reasoningLevel: String): Result<String> = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) return@withContext Result.failure(IllegalStateException("Missing OpenAI API key"))
 
-        val base64Image = if (imageFile != null) {
-            if (!imageFile.exists()) return@withContext Result.failure(IllegalArgumentException("Image file not found"))
-            val imageBytes = imageFile.readBytes()
-            Base64.encodeToString(imageBytes, Base64.NO_WRAP)
-        } else {
-            null
+        // Encode each provided image (downscaled/capped to a sane size) as JPEG.
+        val encodedImages: List<Pair<String, String>> = imageFiles.mapNotNull { file ->
+            if (!file.exists()) return@mapNotNull null
+            val bytes = encodeImageForAiUpload(file) ?: return@mapNotNull null
+            Base64.encodeToString(bytes, Base64.NO_WRAP) to "image/jpeg"
         }
-        val mimeType = if (imageFile != null) guessMimeType(imageFile) else null
 
         val (url, requestBody) = when (apiType) {
             OpenAiApiType.RESPONSES -> {
                 URL("https://api.openai.com/v1/responses") to buildResponsesRequestBody(
-                    base64Image,
-                    mimeType,
+                    encodedImages,
                     note,
                     userId,
                     reasoningLevel,
@@ -44,7 +41,7 @@ class OpenAIProvider(
                 )
             }
             OpenAiApiType.COMPLETIONS -> {
-                URL("https://api.openai.com/v1/chat/completions") to buildChatCompletionsRequestBody(base64Image, mimeType, note, userId, reasoningLevel)
+                URL("https://api.openai.com/v1/chat/completions") to buildChatCompletionsRequestBody(encodedImages, note, userId, reasoningLevel)
             }
         }
         val connection = (url.openConnection() as HttpURLConnection).apply {
@@ -86,7 +83,7 @@ class OpenAIProvider(
         }
     }
 
-    private fun buildChatCompletionsRequestBody(base64Image: String?, mimeType: String?, note: String, userId: String, reasoningLevel: String): String {
+    private fun buildChatCompletionsRequestBody(images: List<Pair<String, String>>, note: String, userId: String, reasoningLevel: String): String {
         val prompt = AiPrompts.getAnalysisPrompt(note)
         
         // Use shared schema
@@ -100,12 +97,12 @@ class OpenAIProvider(
 
         val contentParts = buildList {
             add(mapOf("type" to "text", "text" to prompt))
-            if (!base64Image.isNullOrBlank() && !mimeType.isNullOrBlank()) {
+            for ((base64, mimeType) in images) {
                 add(
                     mapOf(
                         "type" to "image_url",
                         "image_url" to mapOf(
-                            "url" to "data:$mimeType;base64,$base64Image"
+                            "url" to "data:$mimeType;base64,$base64"
                         )
                     )
                 )
@@ -148,8 +145,7 @@ class OpenAIProvider(
     }
 
     private fun buildResponsesRequestBody(
-        base64Image: String?,
-        mimeType: String?,
+        images: List<Pair<String, String>>,
         note: String,
         userId: String,
         reasoningLevel: String,
@@ -160,11 +156,11 @@ class OpenAIProvider(
 
         val contentParts = buildList {
             add(mapOf("type" to "input_text", "text" to prompt))
-            if (!base64Image.isNullOrBlank() && !mimeType.isNullOrBlank()) {
+            for ((base64, mimeType) in images) {
                 add(
                     mapOf(
                         "type" to "input_image",
-                        "image_url" to "data:$mimeType;base64,$base64Image"
+                        "image_url" to "data:$mimeType;base64,$base64"
                     )
                 )
             }
@@ -252,14 +248,5 @@ class OpenAIProvider(
         // All GPT-5.x reasoning models (including the gpt-5.6 luna/terra/sol family)
         // accept the reasoning effort parameter. Older non-reasoning models do not.
         return model.startsWith("gpt-5") || model.startsWith("o")
-    }
-
-    private fun guessMimeType(file: File): String {
-        return when (file.extension.lowercase(Locale.US)) {
-            "jpg", "jpeg" -> "image/jpeg"
-            "png" -> "image/png"
-            "webp" -> "image/webp"
-            else -> "application/octet-stream"
-        }
     }
 }

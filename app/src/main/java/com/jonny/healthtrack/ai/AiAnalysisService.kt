@@ -33,12 +33,12 @@ class AiAnalysisService(
         }
     }
 
-    suspend fun analyzeLog(context: Context, imageFile: File?, note: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun analyzeLog(context: Context, imageFiles: List<File>, note: String): Result<String> = withContext(Dispatchers.IO) {
         val provider = getProvider(context)
         val userId = UserPreferences.getOrCreateUserId(context)
         val reasoningLevel = AiPreferences.getReasoningLevel(context)
         
-        provider.analyzeLog(imageFile, note, userId, reasoningLevel)
+        provider.analyzeLog(imageFiles, note, userId, reasoningLevel)
     }
     
     // Helper to expose the active model name to the repository

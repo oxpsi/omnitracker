@@ -1,5 +1,6 @@
 package com.jonny.healthtrack
 
+import android.Manifest
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -34,11 +35,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.app.ActivityCompat
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.jonny.healthtrack.data.RecipeEntity
 import com.jonny.healthtrack.data.RecipeRepository
 import com.jonny.healthtrack.util.ShareUtils
+import com.jonny.healthtrack.util.normalizeCapturedJpegInPlace
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,7 +68,11 @@ fun RecipesScreen(
     var view by remember { mutableStateOf(RecipeView.List) }
     var editingRecipe by remember { mutableStateOf<RecipeEntity?>(null) }
     var pendingImagePath by rememberSaveable { mutableStateOf<String?>(null) }
-    var showNewLogDialog by remember { mutableStateOf<RecipeEntity?>(null) }
+    var showNewLogEntrySheet by remember { mutableStateOf<RecipeEntity?>(null) }
+    var pendingNewLogRecipe by remember { mutableStateOf<RecipeEntity?>(null) }
+    var pendingNewLogImagePath by rememberSaveable { mutableStateOf<String?>(null) }
+    var tempCameraPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var showNewLogNoteDialog by remember { mutableStateOf(false) }
 
     // Auto-open a recipe when navigated with an openRecipeId (e.g. from a log entry)
     LaunchedEffect(openRecipeId) {
@@ -79,6 +87,81 @@ fun RecipesScreen(
         editingRecipe = null
         pendingImagePath = null
         view = RecipeView.List
+    }
+
+    fun clearPendingNewLog() {
+        val path = pendingNewLogImagePath
+        if (path != null && path.isNotEmpty()) {
+            scope.launch(Dispatchers.IO) {
+                try { File(path).delete() } catch (_: Exception) {}
+            }
+        }
+        pendingNewLogImagePath = null
+        pendingNewLogRecipe = null
+        showNewLogNoteDialog = false
+    }
+
+    // --- Launchers for creating a log from a recipe ---
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        val tempPath = tempCameraPath
+        if (success && !tempPath.isNullOrBlank()) {
+            scope.launch(Dispatchers.IO) {
+                val capturedFile = File(tempPath)
+                val normalized = normalizeCapturedJpegInPlace(capturedFile)
+                withContext(Dispatchers.Main) {
+                    pendingNewLogImagePath = normalized.absolutePath
+                    showNewLogNoteDialog = true
+                }
+            }
+        }
+        tempCameraPath = null
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
+        if (cameraGranted) {
+            val photoFile = createImageFile(context)
+            tempCameraPath = photoFile.absolutePath
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                photoFile
+            )
+            cameraLauncher.launch(uri)
+        }
+    }
+
+    val uploadPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                val destFile = createImageFile(context)
+                var copied = false
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(destFile).use { output -> input.copyTo(output) }
+                    }
+                    copied = true
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                if (copied && destFile.exists() && destFile.length() > 0) {
+                    try { normalizeCapturedJpegInPlace(destFile) } catch (_: Exception) {}
+                    withContext(Dispatchers.Main) {
+                        pendingNewLogImagePath = destFile.absolutePath
+                        showNewLogNoteDialog = true
+                    }
+                } else {
+                    try { if (destFile.exists()) destFile.delete() } catch (_: Exception) {}
+                }
+            }
+        }
     }
 
     when (view) {
@@ -98,7 +181,7 @@ fun RecipesScreen(
                 view = RecipeView.Editor
             },
             onQuickLog = { recipe ->
-                showNewLogDialog = recipe
+                showNewLogEntrySheet = recipe
             }
         )
 
@@ -159,21 +242,53 @@ fun RecipesScreen(
                 resetEditor()
             },
             onNewLog = {
-                editingRecipe?.let { showNewLogDialog = it }
+                editingRecipe?.let { showNewLogEntrySheet = it }
             }
         )
     }
 
-    // New-log-from-recipe note dialog
-    showNewLogDialog?.let { recipe ->
-        NewLogFromRecipeDialog(
+    // Entry-method selection bottom sheet for creating a log from a recipe
+    showNewLogEntrySheet?.let { recipe ->
+        RecipeNewLogEntrySheet(
             recipe = recipe,
-            onDismiss = { showNewLogDialog = null },
-            onConfirm = { note ->
-                onCreateLogFromRecipe(recipe.id, recipe.imagePath, note)
-                showNewLogDialog = null
+            onDismiss = { showNewLogEntrySheet = null },
+            onCapture = {
+                showNewLogEntrySheet = null
+                pendingNewLogRecipe = recipe
+                cameraPermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA))
+            },
+            onUpload = {
+                showNewLogEntrySheet = null
+                pendingNewLogRecipe = recipe
+                uploadPickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            },
+            onNoteOnly = {
+                showNewLogEntrySheet = null
+                pendingNewLogRecipe = recipe
+                showNewLogNoteDialog = true
             }
         )
+    }
+
+    // Note dialog after choosing an entry method (camera, upload, or note-only)
+    if (showNewLogNoteDialog) {
+        val recipe = pendingNewLogRecipe
+        if (recipe != null) {
+            NewLogFromRecipeDialog(
+                recipe = recipe,
+                pendingImagePath = pendingNewLogImagePath,
+                onDismiss = { clearPendingNewLog() },
+                onConfirm = { note ->
+                    val imagePath = pendingNewLogImagePath ?: ""
+                    onCreateLogFromRecipe(recipe.id, imagePath, note)
+                    pendingNewLogImagePath = null
+                    pendingNewLogRecipe = null
+                    showNewLogNoteDialog = false
+                }
+            )
+        }
     }
 }
 
@@ -519,9 +634,87 @@ private fun RecipeEditorContent(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RecipeNewLogEntrySheet(
+    recipe: RecipeEntity,
+    onDismiss: () -> Unit,
+    onCapture: () -> Unit,
+    onUpload: () -> Unit,
+    onNoteOnly: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "New Log from \"${recipe.title.ifBlank { "Recipe" }}\"",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "The recipe will be attached as batch context for AI analysis.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+            Spacer(Modifier.height(20.dp))
+
+            EntryOptionRow(
+                icon = Icons.Default.Add,
+                label = "Capture Photo",
+                description = "Take a new photo (with optional note after)",
+                onClick = onCapture
+            )
+            Spacer(Modifier.height(8.dp))
+            EntryOptionRow(
+                icon = Icons.Default.Upload,
+                label = "Upload Photo",
+                description = "Choose from gallery (with optional note after)",
+                onClick = onUpload
+            )
+            Spacer(Modifier.height(8.dp))
+            EntryOptionRow(
+                icon = Icons.Default.Edit,
+                label = "Note Only",
+                description = "Log entry with text only, no photo",
+                onClick = onNoteOnly
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun EntryOptionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    description: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(28.dp)
+        )
+        Spacer(Modifier.width(16.dp))
+        Column {
+            Text(label, fontWeight = FontWeight.SemiBold)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        }
+    }
+}
+
 @Composable
 private fun NewLogFromRecipeDialog(
     recipe: RecipeEntity,
+    pendingImagePath: String?,
     onDismiss: () -> Unit,
     onConfirm: (note: String) -> Unit
 ) {
@@ -532,11 +725,32 @@ private fun NewLogFromRecipeDialog(
         title = { Text("New Log from \"${recipe.title.ifBlank { "Recipe" }}\"") },
         text = {
             Column {
-                Text(
-                    "Add an optional note. The recipe details will be attached for AI analysis.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
-                )
+                if (pendingImagePath != null && pendingImagePath.isNotEmpty()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(File(pendingImagePath))
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Captured photo",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Add an optional note. The photo and recipe details will be attached for AI analysis.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                } else {
+                    Text(
+                        "Add an optional note. The recipe details will be attached for AI analysis.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = note,

@@ -55,7 +55,8 @@ data class ExportLogModel(
     val analysisStatus: String? = null,
     val analysisError: String? = null,
     val isOriginalImage: Boolean = true,
-    val isPrivate: Boolean = false
+    val isPrivate: Boolean = false,
+    val quantity: Double = 1.0
 )
 
 // Lightweight statistics for sanity-check display
@@ -101,7 +102,8 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
 
     suspend fun analyzeLog(log: LogEntity, force: Boolean = false): Result<LogEntity> = withContext(Dispatchers.IO) {
         val effectiveNote = buildAnalysisNote(log, recipeDao)
-        if (log.imagePath.isBlank() && effectiveNote.isBlank()) {
+        val effectiveImages = buildAnalysisImages(log, recipeDao)
+        if (effectiveImages.isEmpty() && effectiveNote.isBlank()) {
             return@withContext Result.failure(IllegalArgumentException("Nothing to analyze (missing photo and note)"))
         }
 
@@ -118,9 +120,11 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
         )
         logDao.insertLog(pendingUpdate)
 
-        val imageFile = pendingUpdate.imagePath.takeIf { it.isNotBlank() }?.let { File(it) }
-        val analysisText = buildAnalysisNote(pendingUpdate, recipeDao)
-        val result = aiService.analyzeLog(context, imageFile, analysisText)
+        val analysisImages = buildAnalysisImages(pendingUpdate, recipeDao)
+        val imageLabels = analysisImages.map { it.label }
+        val contextPreamble = buildImageContextPreamble(imageLabels)
+        val analysisText = contextPreamble + buildAnalysisNote(pendingUpdate, recipeDao)
+        val result = aiService.analyzeLog(context, analysisImages.map { it.file }, analysisText)
         val now = System.currentTimeMillis()
 
         return@withContext if (result.isSuccess) {
@@ -156,7 +160,8 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
 
     suspend fun queueAnalysis(log: LogEntity, force: Boolean = false) = withContext(Dispatchers.IO) {
         val effectiveNote = buildAnalysisNote(log, recipeDao)
-        if (log.imagePath.isBlank() && effectiveNote.isBlank()) return@withContext
+        val effectiveImages = buildAnalysisImages(log, recipeDao)
+        if (effectiveImages.isEmpty() && effectiveNote.isBlank()) return@withContext
 
         val latest = logDao.getLogById(log.id) ?: log
         if (!force && latest.analysisStatus == AiAnalysisStatus.PENDING) return@withContext
@@ -296,7 +301,8 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
                             analysisStatus = exportModel.analysisStatus,
                             analysisError = exportModel.analysisError,
                             isOriginalImage = exportModel.isOriginalImage,
-                            isPrivate = exportModel.isPrivate
+                            isPrivate = exportModel.isPrivate,
+                            quantity = exportModel.quantity
                         )
                         logDao.insertLog(log)
                     } catch (e: Exception) { e.printStackTrace() }
@@ -343,7 +349,8 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
                                         analysisStatus = exportModel.analysisStatus,
                                         analysisError = exportModel.analysisError,
                                         isOriginalImage = exportModel.isOriginalImage,
-                                        isPrivate = exportModel.isPrivate
+                                        isPrivate = exportModel.isPrivate,
+                                        quantity = exportModel.quantity
                                     )
                                     logDao.insertLog(log)
                                 } catch (e: Exception) { e.printStackTrace() }
@@ -394,7 +401,8 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
                     analysisStatus = log.analysisStatus,
                     analysisError = log.analysisError,
                     isOriginalImage = log.isOriginalImage,
-                    isPrivate = log.isPrivate
+                    isPrivate = log.isPrivate,
+                    quantity = log.quantity
                 )
                 writer.write(gson.toJson(exportLog))
                 writer.newLine()
@@ -433,7 +441,8 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
                     analysisStatus = log.analysisStatus,
                     analysisError = log.analysisError,
                     isOriginalImage = log.isOriginalImage,
-                    isPrivate = log.isPrivate
+                    isPrivate = log.isPrivate,
+                    quantity = log.quantity
                 )
                 jsonlBuilder.append(gson.toJson(exportLog)).append("\n")
             }

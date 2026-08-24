@@ -30,7 +30,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -52,6 +60,7 @@ import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.QuestionMark
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.SetMeal
 import androidx.compose.material.icons.filled.Settings
@@ -78,6 +87,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1286,6 +1296,12 @@ private fun formatDate(millis: Long?): String {
     return sdf.format(java.util.Date(millis))
 }
 
+private fun formatQuantityValue(value: Double): String {
+    val isWhole = value % 1.0 == 0.0
+    if (isWhole) return value.toLong().toString()
+    return String.format(Locale.US, "%.2f", value).trimEnd('0').trimEnd('.')
+}
+
 @Composable
 fun DatabaseStatsCard(repository: LogRepository) {
     var stats by remember { mutableStateOf<DatabaseStats?>(null) }
@@ -1981,6 +1997,7 @@ fun DetailScreen(
     showCloseButton: Boolean
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showNoteEditDialog by remember { mutableStateOf(false) }
     var showReuseNoteDialog by remember { mutableStateOf(false) }
@@ -2096,6 +2113,12 @@ fun DetailScreen(
                     }
                 } else ({}),
                 actions = {
+                    // Show recipe icon if this log is linked to a recipe
+                    if (log.recipeId != null) {
+                        IconButton(onClick = { onViewRecipe(log.recipeId) }) {
+                            Icon(Icons.Default.Restaurant, "View Recipe")
+                        }
+                    }
                     // Private Toggle
                     IconButton(onClick = { onUpdate(log.copy(isPrivate = !log.isPrivate)) }) {
                         Icon(
@@ -2104,15 +2127,8 @@ fun DetailScreen(
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
-                    
                     IconButton(onClick = { showDeleteDialog = true }) {
                         Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
-                    }
-                    // Show recipe icon if this log is linked to a recipe
-                    if (log.recipeId != null) {
-                        IconButton(onClick = { onViewRecipe(log.recipeId) }) {
-                            Icon(Icons.Default.Restaurant, "View Recipe")
-                        }
                     }
                     if (showCloseButton) {
                         IconButton(onClick = onBack) {
@@ -2127,6 +2143,13 @@ fun DetailScreen(
             modifier = Modifier
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = {
+                            focusManager.clearFocus()
+                        }
+                    )
+                }
         ) {
             // Main Image Box
             Box(Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 400.dp).background(Color.LightGray)) {
@@ -2229,6 +2252,65 @@ fun DetailScreen(
                             text = if(log.note.isNotBlank()) log.note else "Tap to add note...", 
                             style = MaterialTheme.typography.bodyLarge
                         )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Quantity", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                        Spacer(Modifier.width(16.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilledIconButton(
+                                onClick = {
+                                    val next = (kotlin.math.round(log.quantity).toInt() - 1).coerceAtLeast(1).toDouble()
+                                    if (next != log.quantity) onUpdate(log.copy(quantity = next))
+                                },
+                                enabled = log.quantity > 1.0,
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(Icons.Default.Remove, contentDescription = "Decrease")
+                            }
+                            var quantityText by remember(log.id, log.quantity) {
+                                mutableStateOf(formatQuantityValue(log.quantity))
+                            }
+                            OutlinedTextField(
+                                value = quantityText,
+                                onValueChange = { input ->
+                                    val sanitized = input.filter { it.isDigit() || it == '.' }
+                                    quantityText = sanitized
+                                    val parsed = sanitized.toDoubleOrNull()
+                                    if (parsed != null && parsed > 0 && parsed != log.quantity) {
+                                        onUpdate(log.copy(quantity = parsed))
+                                    } else if (sanitized.isBlank() || parsed == null) {
+                                        // Keep typed text (e.g. "0.", "0.5") without forcing log update.
+                                    }
+                                },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true,
+                                modifier = Modifier.width(96.dp),
+                                textStyle = androidx.compose.ui.text.TextStyle(textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            )
+                            FilledIconButton(
+                                onClick = {
+                                    val next = (kotlin.math.round(log.quantity).toInt() + 1).toDouble()
+                                    onUpdate(log.copy(quantity = next))
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Increase")
+                            }
+                        }
                     }
                 }
 
@@ -2341,28 +2423,7 @@ fun DetailScreen(
                                 text = "Type: ${analysis.type ?: "Unknown"}",
                                 style = MaterialTheme.typography.bodyMedium
                             )
-                            if (analysis.components.isNotEmpty()) {
-                                Spacer(Modifier.height(16.dp))
-                                Text("Components", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
-                                Spacer(Modifier.height(4.dp))
-                                
-                                // Table Header
-                                Row(Modifier.fillMaxWidth()) {
-                                    Text("Name", Modifier.weight(2f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
-                                    Text("Qty", Modifier.weight(1f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
-                                    Text("Unit", Modifier.weight(1f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
-                                }
-                                Divider(Modifier.padding(vertical = 4.dp))
-                                
-                                // Table Body
-                                analysis.components.forEach { component ->
-                                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                                        Text(component.name ?: "-", Modifier.weight(2f), style = MaterialTheme.typography.bodySmall)
-                                        Text(component.quantity?.toString() ?: "-", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                                        Text(component.unit ?: "-", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
-                            }
+                            // Components are rendered in their own section below.
                         } else if (log.analysisStatus == AiAnalysisStatus.COMPLETE) {
                             Spacer(Modifier.height(12.dp))
                             Text("No structured data returned.", style = MaterialTheme.typography.bodyMedium)
@@ -2378,6 +2439,42 @@ fun DetailScreen(
                             Spacer(Modifier.width(8.dp))
                             Text(if (analysis == null) "Analyze" else "Re-analyze")
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                if (analysis != null && analysis.components.isNotEmpty()) {
+                    Text("Components", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+                        Text("Name", Modifier.weight(2f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                        Text("Qty", Modifier.weight(1f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                        Text("Net", Modifier.weight(1f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                        Text("Unit", Modifier.weight(1f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    analysis.components.forEach { component ->
+                        val net = component.quantity?.let { it * log.quantity }
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(component.name ?: "-", Modifier.weight(2f), style = MaterialTheme.typography.bodyMedium)
+                                Text(component.quantity?.let { formatQuantityValue(it) } ?: "-", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                                Text(net?.let { formatQuantityValue(it) } ?: "-", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Text(component.unit ?: "-", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
 

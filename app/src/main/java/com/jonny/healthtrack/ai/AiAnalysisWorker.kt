@@ -39,9 +39,11 @@ class AiAnalysisWorker(
         )
         logDao.insertLog(pendingUpdate)
 
-        val imageFile = pendingUpdate.imagePath.takeIf { it.isNotBlank() }?.let { java.io.File(it) }
-        val analysisText = com.jonny.healthtrack.data.buildAnalysisNote(pendingUpdate, recipeDao)
-        val result = aiService.analyzeLog(applicationContext, imageFile, analysisText)
+        val analysisImages = com.jonny.healthtrack.data.buildAnalysisImages(pendingUpdate, recipeDao)
+        val imageLabels = analysisImages.map { it.label }
+        val contextPreamble = com.jonny.healthtrack.data.buildImageContextPreamble(imageLabels)
+        val analysisText = contextPreamble + com.jonny.healthtrack.data.buildAnalysisNote(pendingUpdate, recipeDao)
+        val result = aiService.analyzeLog(applicationContext, analysisImages.map { it.file }, analysisText)
         val now = System.currentTimeMillis()
 
         return if (result.isSuccess) {
