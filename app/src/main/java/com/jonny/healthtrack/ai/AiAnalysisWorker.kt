@@ -105,7 +105,7 @@ class AiAnalysisWorker(
     }
 
     private fun parseHttpStatusCode(message: String): Int? {
-        // Providers use messages like "OpenAI error 429: ..." or "Gemini error 500: ..."
+        // Providers use messages like "HTTP 429: ..." or "Chat completions error 500: ..."
         val regex = Regex("""\berror\s+(\d{3})\b""", RegexOption.IGNORE_CASE)
         return regex.find(message)?.groupValues?.getOrNull(1)?.toIntOrNull()
     }

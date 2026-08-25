@@ -6,17 +6,6 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-val localProperties = Properties().apply {
-    val propsFile = rootProject.file("local.properties")
-    if (propsFile.exists()) {
-        propsFile.inputStream().use { load(it) }
-    }
-}
-val geminiApiKey = localProperties.getProperty("GEMINI_API_KEY") ?: ""
-val geminiModel = localProperties.getProperty("GEMINI_MODEL") ?: "gemini-3-flash-preview"
-val openAiApiKey = localProperties.getProperty("OPENAI_API_KEY") ?: ""
-val openAiModel = localProperties.getProperty("OPENAI_MODEL") ?: "gpt-4o"
-
 android {
     namespace = "com.jonny.healthtrack"
     compileSdk = 35
@@ -32,10 +21,6 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
-        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
-        buildConfigField("String", "GEMINI_MODEL", "\"$geminiModel\"")
-        buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
-        buildConfigField("String", "OPENAI_MODEL", "\"$openAiModel\"")
     }
 
     buildTypes {

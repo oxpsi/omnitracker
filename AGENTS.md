@@ -12,7 +12,7 @@
 *   **Data Storage:** 
     *   Metadata: SQLite via Room (`healthtrack_database`).
     *   Images: `getExternalFilesDir(Environment.DIRECTORY_PICTURES)` (Private app storage).
-*   **AI Analysis:** Modular provider system supporting Google Gemini and OpenAI GPT models.
+*   **AI Analysis:** Single OpenAI-compatible chat completions provider (user-configurable base URL, API key, organization, model). NO more Gemini, Responses API, or dual-provider fallback.
 
 ## 🚀 Current MVP Features
 1.  **Camera Capture:** Uses `ActivityResultContracts.TakePicture()` to launch system camera.
@@ -22,7 +22,7 @@
 5.  **History:** Date-based horizontal scroll selector to view past entries.
 6.  **AI Analysis:** Analyzes photos to extract Title, Type (Food/Medicine/etc), and Components (Ingredients/Qty).
     *   Supports structured data extraction.
-    *   Fallback logic: Prefers OpenAI if key is present, defaults to Gemini.
+    *   User-configured endpoint via in-app Settings (base URL, API key, organization, model). Settings persist in SharedPreferences (`ai_settings`) and survive app updates.
 7.  **Persistence:** Data survives app restarts via Room Database.
 8.  **Import/Export:** Supports JSONL (Lite) and ZIP (Full with images) backup/restore.
 
@@ -40,15 +40,6 @@ This project is designed to be built on **Linux (Ubuntu)** and **macOS**.
 sdk.dir=/home/<username>/Android/Sdk
 # macOS Example:
 sdk.dir=/Users/<username>/Library/Android/sdk
-
-# AI Keys (Optional - Feature will be disabled or limited without them)
-# To use Gemini (Free tier available):
-GEMINI_API_KEY=AIzaSy...
-GEMINI_MODEL=gemini-2.5-flash
-
-# To use OpenAI (Preferred by app logic if present):
-OPENAI_API_KEY=sk-proj-...
-OPENAI_MODEL=gpt-4o
 ```
 
 ## 🔨 Build & Run Commands
@@ -97,10 +88,10 @@ If cloning this repo on a MacBook Pro:
 ## ⚠️ Important Files
 *   `app/src/main/java/com/jonny/healthtrack/MainActivity.kt`: Main UI and Navigation.
 *   `app/src/main/java/com/jonny/healthtrack/ai/AiAnalysisService.kt`: Logic for choosing AI provider.
-*   `app/src/main/java/com/jonny/healthtrack/ai/providers/`: implementations for Gemini and OpenAI.
+*   `app/src/main/java/com/jonny/healthtrack/ai/providers/`: provider interface and `ChatCompletionsProvider` implementation (chat completions endpoint, includes `discoverModels`).
 *   `app/src/main/java/com/jonny/healthtrack/data/LogRepository.kt`: Data handling and AI invocation.
 
 ## 🐛 Known Quirks / "Watch Outs"
 *   **Permissions:** The app asks for Camera/Location permissions on usage. If denied, features silently fail.
 *   **Location:** Relies on `FusedLocationProviderClient`. Requires GPS/Network to be active.
-*   **AI Quotas:** If using Gemini Free Tier, you may hit "429 Resource Exhausted" if spamming requests. Switch to OpenAI or wait.
+*   **AI Quotas:** Depending on the configured endpoint/provider, you may hit rate limits (e.g. 429). Adjust the base URL/model in Settings or wait.

@@ -1,55 +1,37 @@
 package com.jonny.healthtrack.ai
 
 import android.content.Context
-import com.jonny.healthtrack.BuildConfig
 import com.jonny.healthtrack.ai.providers.AiProvider
-import com.jonny.healthtrack.ai.providers.GeminiProvider
-import com.jonny.healthtrack.ai.providers.OpenAIProvider
+import com.jonny.healthtrack.ai.providers.ChatCompletionsProvider
 import com.jonny.healthtrack.util.UserPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Locale
 
-class AiAnalysisService(
-    private val geminiApiKey: String = BuildConfig.GEMINI_API_KEY,
-    private val geminiModel: String = BuildConfig.GEMINI_MODEL,
-    private val openAiApiKey: String = BuildConfig.OPENAI_API_KEY
-) {
+class AiAnalysisService {
 
     private fun getProvider(context: Context): AiProvider {
-        // Simple strategy: Prefer OpenAI if key is present, otherwise fallback to Gemini
-        return if (openAiApiKey.isNotBlank()) {
-            val apiType = AiPreferences.getOpenAiApiType(context)
-            val enableWebSearch = apiType == OpenAiApiType.RESPONSES && AiPreferences.isWebSearchEnabled(context)
-            OpenAIProvider(
-                openAiApiKey,
-                AiPreferences.getOpenAiModel(context),
-                apiType,
-                enableWebSearch
-            )
-        } else {
-            GeminiProvider(geminiApiKey, geminiModel)
-        }
+        return ChatCompletionsProvider(
+            apiKey = AiPreferences.getApiKey(context),
+            model = AiPreferences.getModel(context),
+            baseUrl = AiPreferences.getBaseUrl(context)
+        )
     }
 
     suspend fun analyzeLog(context: Context, imageFiles: List<File>, note: String): Result<String> = withContext(Dispatchers.IO) {
+        if (!AiPreferences.isEnabled(context)) {
+            return@withContext Result.failure(IllegalStateException("AI analysis is disabled"))
+        }
         val provider = getProvider(context)
         val userId = UserPreferences.getOrCreateUserId(context)
         val reasoningLevel = AiPreferences.getReasoningLevel(context)
-        
+
         provider.analyzeLog(imageFiles, note, userId, reasoningLevel)
     }
-    
-    // Helper to expose the active model name to the repository
+
     fun getActiveModelName(context: Context): String {
-        return if (openAiApiKey.isNotBlank()) {
-            val preset = AiPreferences.getActivePreset(context)
-            val label = preset.name.lowercase(Locale.US).replaceFirstChar { it.titlecase(Locale.US) }
-            "OpenAI ($label): ${AiPreferences.getOpenAiModel(context, preset)}"
-        }
-        else {
-            "Gemini: $geminiModel"
-        }
+        val baseUrl = AiPreferences.getBaseUrl(context)
+        val host = runCatching { java.net.URI(baseUrl).host }.getOrNull()?.removePrefix("www.") ?: baseUrl
+        return "Chat Completions: ${AiPreferences.getModel(context)} @ $host"
     }
 }

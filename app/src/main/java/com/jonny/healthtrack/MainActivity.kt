@@ -22,7 +22,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.BakeryDining
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Create
@@ -88,6 +89,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -100,9 +102,8 @@ import coil.request.ImageRequest
 import com.google.android.gms.location.LocationServices
 import com.jonny.healthtrack.ai.AiAnalysisStatus
 import com.jonny.healthtrack.ai.AiPreferences
-import com.jonny.healthtrack.ai.AiModelPreset
-import com.jonny.healthtrack.ai.OpenAiApiType
 import com.jonny.healthtrack.ai.latestAiAnalysis
+import com.jonny.healthtrack.ai.providers.ChatCompletionsProvider
 import com.jonny.healthtrack.data.AppDatabase
 import com.jonny.healthtrack.data.LogEntity
 import com.jonny.healthtrack.data.LogRepository
@@ -154,11 +155,10 @@ class MainActivity : ComponentActivity() {
         repository.checkAndMigrateLegacyData()
 
         setContent {
-            val systemDark = isSystemInDarkTheme()
-            var isDarkTheme by remember { mutableStateOf(systemDark) }
+            val context = LocalContext.current
+            var isDarkTheme by remember { mutableStateOf(ThemePreferences.isDarkTheme(context)) }
 
             // Theme Color State
-            val context = LocalContext.current
             var themeColor by remember { mutableStateOf(ThemePreferences.getThemeColor(context)) }
 
             HealthTrackTheme(darkTheme = isDarkTheme, themeColor = themeColor) {
@@ -166,7 +166,10 @@ class MainActivity : ComponentActivity() {
                     repository = repository,
                     recipeRepository = recipeRepository,
                     isDarkTheme = isDarkTheme,
-                    onToggleTheme = { isDarkTheme = !isDarkTheme },
+                    onToggleTheme = {
+                        isDarkTheme = !isDarkTheme
+                        ThemePreferences.setDarkTheme(context, isDarkTheme)
+                    },
                     themeColor = themeColor,
                     onThemeColorChange = { newColor ->
                         themeColor = newColor
@@ -615,7 +618,6 @@ fun HomeScreen(
     var pendingUploadLat by rememberSaveable { mutableStateOf<Double?>(null) }
     var pendingUploadLong by rememberSaveable { mutableStateOf<Double?>(null) }
     var showFabMenu by remember { mutableStateOf(false) }
-    var activePreset by remember { mutableStateOf(AiPreferences.getActivePreset(context)) }
 
     val filteredLogs = logs.filter {
         val logDate = Instant.ofEpochMilli(it.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
@@ -844,39 +846,6 @@ fun HomeScreen(
                 verticalAlignment = Alignment.Bottom
             ) {
                 Spacer(Modifier.weight(1f))
-
-                FloatingActionButton(
-                    onClick = {
-                        activePreset = if (activePreset == AiModelPreset.LOW) AiModelPreset.HIGH else AiModelPreset.LOW
-                        AiPreferences.setActivePreset(context, activePreset)
-                    },
-                    containerColor = if (activePreset == AiModelPreset.HIGH) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    },
-                    modifier = Modifier.padding(end = 12.dp)
-                ) {
-                    if (activePreset == AiModelPreset.HIGH) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Icon(
-                                Icons.Default.Bolt,
-                                contentDescription = "High model preset",
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Icon(
-                                Icons.Default.Bolt,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    } else {
-                        Icon(
-                            Icons.Default.Bolt,
-                            contentDescription = "Low model preset"
-                        )
-                    }
-                }
 
                 Column(horizontalAlignment = Alignment.End) {
                     if (showFabMenu) {
@@ -1389,15 +1358,6 @@ fun DatabaseStatsCard(repository: LogRepository) {
     }
 }
 
-private fun gpt56ModelLabel(model: String): String {
-    return when (model) {
-        "gpt-5.6-luna" -> "GPT-5.6 Luna (low cost)"
-        "gpt-5.6-terra" -> "GPT-5.6 Terra (balanced)"
-        "gpt-5.6-sol" -> "GPT-5.6 Sol (flagship)"
-        else -> model
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -1414,20 +1374,21 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var openAiApiType by remember { mutableStateOf(AiPreferences.getOpenAiApiType(context)) }
-    var openAiApiTypeExpanded by remember { mutableStateOf(false) }
-    var openAiModelLow by remember { mutableStateOf(AiPreferences.getOpenAiModel(context, AiModelPreset.LOW)) }
-    var openAiModelLowExpanded by remember { mutableStateOf(false) }
-    var openAiModelHigh by remember { mutableStateOf(AiPreferences.getOpenAiModel(context, AiModelPreset.HIGH)) }
-    var openAiModelHighExpanded by remember { mutableStateOf(false) }
-    var webSearchEnabled by remember { mutableStateOf(AiPreferences.isWebSearchEnabled(context)) }
-    
-    // Reasoning Level
-    var reasoningLevelLow by remember { mutableStateOf(AiPreferences.getReasoningLevel(context, AiModelPreset.LOW)) }
-    var reasoningLevelLowExpanded by remember { mutableStateOf(false) }
-    var reasoningLevelHigh by remember { mutableStateOf(AiPreferences.getReasoningLevel(context, AiModelPreset.HIGH)) }
-    var reasoningLevelHighExpanded by remember { mutableStateOf(false) }
-    val reasoningOptions = listOf("low", "medium", "high")
+
+    // AI provider settings (chat completions endpoint)
+    var chatBaseUrl by remember { mutableStateOf(AiPreferences.getBaseUrl(context)) }
+    var chatApiKey by remember { mutableStateOf(AiPreferences.getApiKey(context)) }
+    var chatModel by remember { mutableStateOf(AiPreferences.getModel(context)) }
+    var discoveredModels by remember { mutableStateOf(AiPreferences.getDiscoveredModels(context)) }
+    var modelMenuExpanded by remember { mutableStateOf(false) }
+    var discovering by remember { mutableStateOf(false) }
+    var discoverError by remember { mutableStateOf<String?>(null) }
+    var showApiKey by remember { mutableStateOf(false) }
+
+    // Reasoning effort
+    var reasoningLevel by remember { mutableStateOf(AiPreferences.getReasoningLevel(context)) }
+    var reasoningMenuExpanded by remember { mutableStateOf(false) }
+    val reasoningOptions = AiPreferences.reasoningOptionList
 
     // Export State
     var showExportDialog by remember { mutableStateOf(false) }
@@ -1650,240 +1611,199 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            Text("OpenAI API type", style = MaterialTheme.typography.bodyLarge)
+            Text("Chat Completions Endpoint", style = MaterialTheme.typography.bodyLarge)
+
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = chatBaseUrl,
+                onValueChange = {
+                    chatBaseUrl = it
+                    AiPreferences.setBaseUrl(context, it)
+                },
+                label = { Text("Base URL") },
+                placeholder = { Text(AiPreferences.DEFAULT_BASE_URL) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = chatApiKey,
+                onValueChange = {
+                    chatApiKey = it
+                    AiPreferences.setApiKey(context, it)
+                },
+                label = { Text("API Key") },
+                singleLine = true,
+                visualTransformation = if (showApiKey) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { showApiKey = !showApiKey }) {
+                        Icon(
+                            if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (showApiKey) "Hide API key" else "Show API key"
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(12.dp))
+            Text("Model", style = MaterialTheme.typography.bodyLarge)
             Text(
-                "Completions = /v1/chat/completions, Responses = /v1/responses (recommended).",
+                "Tap Discover to fetch available models from the endpoint, then pick one.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
             Spacer(Modifier.height(8.dp))
 
-            ExposedDropdownMenuBox(
-                expanded = openAiApiTypeExpanded,
-                onExpandedChange = { openAiApiTypeExpanded = !openAiApiTypeExpanded }
-            ) {
-                OutlinedTextField(
-                    value = openAiApiType.name.lowercase(Locale.US).replaceFirstChar { it.titlecase(Locale.US) },
-                    onValueChange = {},
-                    readOnly = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .menuAnchor(),
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = openAiApiTypeExpanded) }
-                )
-
-	                ExposedDropdownMenu(
-	                    expanded = openAiApiTypeExpanded,
-	                    onDismissRequest = { openAiApiTypeExpanded = false }
-	                ) {
-	                    AiPreferences.openAiApiTypeOptions.forEach { apiType ->
-	                        DropdownMenuItem(
-	                            text = { Text(apiType.name.lowercase(Locale.US).replaceFirstChar { it.titlecase(Locale.US) }) },
-	                            onClick = {
-                                openAiApiType = apiType
-                                AiPreferences.setOpenAiApiType(context, apiType)
-                                openAiModelLow = AiPreferences.getOpenAiModel(context, AiModelPreset.LOW)
-                                openAiModelHigh = AiPreferences.getOpenAiModel(context, AiModelPreset.HIGH)
-                                openAiApiTypeExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-            val webSearchSupported = openAiApiType == OpenAiApiType.RESPONSES
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Enable web search (Responses API)", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "Lets the model call the server-side web_search tool during analysis.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                ExposedDropdownMenuBox(
+                    expanded = modelMenuExpanded,
+                    onExpandedChange = { modelMenuExpanded = !modelMenuExpanded },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    OutlinedTextField(
+                        value = chatModel,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Model") },
+                        placeholder = { Text("Discover models first") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelMenuExpanded) }
                     )
+
+                    ExposedDropdownMenu(
+                        expanded = modelMenuExpanded,
+                        onDismissRequest = { modelMenuExpanded = false }
+                    ) {
+                        val menuItems = buildList {
+                            if (chatModel.isNotBlank() && chatModel !in discoveredModels) add(chatModel)
+                            addAll(discoveredModels)
+                        }
+                        if (menuItems.isEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("No models — tap Discover") },
+                                onClick = { modelMenuExpanded = false },
+                                enabled = false
+                            )
+                        } else {
+                            menuItems.forEach { model ->
+                                DropdownMenuItem(
+                                    text = { Text(model) },
+                                    onClick = {
+                                        chatModel = model
+                                        AiPreferences.setModel(context, model)
+                                        modelMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
-                Switch(
-                    checked = webSearchEnabled,
-                    onCheckedChange = {
-                        webSearchEnabled = it
-                        AiPreferences.setWebSearchEnabled(context, it)
+
+                OutlinedButton(
+                    onClick = {
+                        if (chatBaseUrl.isBlank() || chatApiKey.isBlank()) {
+                            discoverError = "Set Base URL and API Key first"
+                            return@OutlinedButton
+                        }
+                        discovering = true
+                        discoverError = null
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                ChatCompletionsProvider.discoverModels(chatBaseUrl, chatApiKey)
+                            }
+                            discovering = false
+                            result.onSuccess { models ->
+                                discoveredModels = models
+                                AiPreferences.setDiscoveredModels(context, models)
+                                if (models.isEmpty()) {
+                                    discoverError = "Endpoint returned no models"
+                                } else if (chatModel.isBlank() || chatModel !in models) {
+                                    chatModel = models.first()
+                                    AiPreferences.setModel(context, chatModel)
+                                }
+                            }.onFailure { e ->
+                                discoverError = e.message ?: "Discovery failed"
+                            }
+                        }
                     },
-                    enabled = webSearchSupported
+                    enabled = !discovering
+                ) {
+                    if (discovering) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(Icons.Default.Search, contentDescription = "Discover models")
+                        Spacer(Modifier.width(6.dp))
+                        Text("Discover")
+                    }
+                }
+            }
+            discoverError?.let { err ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = err,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            if (discoveredModels.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "${discoveredModels.size} models discovered",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
             }
 
             Spacer(Modifier.height(12.dp))
-
-            Text("Model presets (Low / High)", style = MaterialTheme.typography.bodyLarge)
+            Text("Reasoning effort", style = MaterialTheme.typography.bodyLarge)
             Text(
-                "GPT-5.6 family: Luna (low cost) · Terra (balanced) · Sol (flagship). Used when OPENAI_API_KEY is set (otherwise Gemini is used).",
+                "Depth of AI thinking (applied only when the selected model supports it).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
             Spacer(Modifier.height(8.dp))
 
             ExposedDropdownMenuBox(
-                expanded = openAiModelLowExpanded,
-                onExpandedChange = { openAiModelLowExpanded = !openAiModelLowExpanded }
+                expanded = reasoningMenuExpanded,
+                onExpandedChange = { reasoningMenuExpanded = !reasoningMenuExpanded }
             ) {
                 OutlinedTextField(
-                    value = gpt56ModelLabel(openAiModelLow),
+                    value = reasoningLevel.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() },
                     onValueChange = {},
                     readOnly = true,
                     modifier = Modifier
                         .fillMaxWidth()
                         .menuAnchor(),
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = openAiModelLowExpanded) },
-                    label = { Text("Low preset model") }
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = reasoningMenuExpanded) }
                 )
 
                 ExposedDropdownMenu(
-                    expanded = openAiModelLowExpanded,
-                    onDismissRequest = { openAiModelLowExpanded = false }
-                ) {
-                    AiPreferences.getOpenAiModelOptions(openAiApiType).forEach { model ->
-                        DropdownMenuItem(
-                            text = { Text(gpt56ModelLabel(model)) },
-                            onClick = {
-                                openAiModelLow = model
-                                AiPreferences.setOpenAiModel(context, model, AiModelPreset.LOW)
-                                openAiModelLowExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-            
-            Spacer(Modifier.height(12.dp))
-            Text("Low preset reasoning effort", style = MaterialTheme.typography.bodyLarge)
-            Text(
-                "Adjust the depth of AI thinking.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-            )
-            Spacer(Modifier.height(8.dp))
-            
-            ExposedDropdownMenuBox(
-                expanded = reasoningLevelLowExpanded,
-                onExpandedChange = { reasoningLevelLowExpanded = !reasoningLevelLowExpanded }
-            ) {
-                OutlinedTextField(
-                    value = reasoningLevelLow.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() },
-                    onValueChange = {},
-                    readOnly = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .menuAnchor(),
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = reasoningLevelLowExpanded) }
-                )
-
-                ExposedDropdownMenu(
-                    expanded = reasoningLevelLowExpanded,
-                    onDismissRequest = { reasoningLevelLowExpanded = false }
+                    expanded = reasoningMenuExpanded,
+                    onDismissRequest = { reasoningMenuExpanded = false }
                 ) {
                     reasoningOptions.forEach { level ->
                         DropdownMenuItem(
                             text = { Text(level.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() }) },
                             onClick = {
-                                reasoningLevelLow = level
-                                AiPreferences.setReasoningLevel(context, level, AiModelPreset.LOW)
-                                reasoningLevelLowExpanded = false
+                                reasoningLevel = level
+                                AiPreferences.setReasoningLevel(context, level)
+                                reasoningMenuExpanded = false
                             }
                         )
                     }
                 }
             }
-            
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Low preset estimated cost: ${AiPreferences.getEstimatedCost(context, AiModelPreset.LOW)}",
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            Text("High preset model", style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.height(8.dp))
-
-            ExposedDropdownMenuBox(
-                expanded = openAiModelHighExpanded,
-                onExpandedChange = { openAiModelHighExpanded = !openAiModelHighExpanded }
-            ) {
-                OutlinedTextField(
-                    value = gpt56ModelLabel(openAiModelHigh),
-                    onValueChange = {},
-                    readOnly = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .menuAnchor(),
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = openAiModelHighExpanded) }
-                )
-
-                ExposedDropdownMenu(
-                    expanded = openAiModelHighExpanded,
-                    onDismissRequest = { openAiModelHighExpanded = false }
-                ) {
-                    AiPreferences.getOpenAiModelOptions(openAiApiType).forEach { model ->
-                        DropdownMenuItem(
-                            text = { Text(gpt56ModelLabel(model)) },
-                            onClick = {
-                                openAiModelHigh = model
-                                AiPreferences.setOpenAiModel(context, model, AiModelPreset.HIGH)
-                                openAiModelHighExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-            Text("High preset reasoning effort", style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.height(8.dp))
-
-            ExposedDropdownMenuBox(
-                expanded = reasoningLevelHighExpanded,
-                onExpandedChange = { reasoningLevelHighExpanded = !reasoningLevelHighExpanded }
-            ) {
-                OutlinedTextField(
-                    value = reasoningLevelHigh.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() },
-                    onValueChange = {},
-                    readOnly = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .menuAnchor(),
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = reasoningLevelHighExpanded) }
-                )
-
-                ExposedDropdownMenu(
-                    expanded = reasoningLevelHighExpanded,
-                    onDismissRequest = { reasoningLevelHighExpanded = false }
-                ) {
-                    reasoningOptions.forEach { level ->
-                        DropdownMenuItem(
-                            text = { Text(level.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() }) },
-                            onClick = {
-                                reasoningLevelHigh = level
-                                AiPreferences.setReasoningLevel(context, level, AiModelPreset.HIGH)
-                                reasoningLevelHighExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "High preset estimated cost: ${AiPreferences.getEstimatedCost(context, AiModelPreset.HIGH)}",
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
 
             Divider(Modifier.padding(vertical = 16.dp))
 
@@ -2309,65 +2229,6 @@ fun DetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Quantity", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
-                        Spacer(Modifier.width(16.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            FilledIconButton(
-                                onClick = {
-                                    val next = (kotlin.math.round(log.quantity).toInt() - 1).coerceAtLeast(1).toDouble()
-                                    if (next != log.quantity) onUpdate(log.copy(quantity = next))
-                                },
-                                enabled = log.quantity > 1.0,
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Icon(Icons.Default.Remove, contentDescription = "Decrease")
-                            }
-                            var quantityText by remember(log.id, log.quantity) {
-                                mutableStateOf(formatQuantityValue(log.quantity))
-                            }
-                            OutlinedTextField(
-                                value = quantityText,
-                                onValueChange = { input ->
-                                    val sanitized = input.filter { it.isDigit() || it == '.' }
-                                    quantityText = sanitized
-                                    val parsed = sanitized.toDoubleOrNull()
-                                    if (parsed != null && parsed > 0 && parsed != log.quantity) {
-                                        onUpdate(log.copy(quantity = parsed))
-                                    } else if (sanitized.isBlank() || parsed == null) {
-                                        // Keep typed text (e.g. "0.", "0.5") without forcing log update.
-                                    }
-                                },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                singleLine = true,
-                                modifier = Modifier.width(96.dp),
-                                textStyle = androidx.compose.ui.text.TextStyle(textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                            )
-                            FilledIconButton(
-                                onClick = {
-                                    val next = (kotlin.math.round(log.quantity).toInt() + 1).toDouble()
-                                    onUpdate(log.copy(quantity = next))
-                                },
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = "Increase")
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
                     Column(Modifier.padding(16.dp)) {
                         val clipboardManager = LocalClipboardManager.current
                         Row(
@@ -2486,6 +2347,64 @@ fun DetailScreen(
                             Icon(Icons.Default.Refresh, null)
                             Spacer(Modifier.width(8.dp))
                             Text(if (analysis == null) "Analyze" else "Re-analyze")
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Quantity", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                        Spacer(Modifier.width(16.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilledIconButton(
+                                onClick = {
+                                    val next = (kotlin.math.round(log.quantity).toInt() - 1).coerceAtLeast(1).toDouble()
+                                    if (next != log.quantity) onUpdate(log.copy(quantity = next))
+                                },
+                                enabled = log.quantity > 1.0,
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(Icons.Default.Remove, contentDescription = "Decrease")
+                            }
+                            var quantityText by remember(log.id, log.quantity) {
+                                mutableStateOf(formatQuantityValue(log.quantity))
+                            }
+                            OutlinedTextField(
+                                value = quantityText,
+                                onValueChange = { input ->
+                                    val sanitized = input.filter { it.isDigit() || it == '.' }
+                                    quantityText = sanitized
+                                    val parsed = sanitized.toDoubleOrNull()
+                                    if (parsed != null && parsed > 0 && parsed != log.quantity) {
+                                        onUpdate(log.copy(quantity = parsed))
+                                    } else if (sanitized.isBlank() || parsed == null) {
+                                        // Keep typed text (e.g. "0.", "0.5") without forcing log update.
+                                    }
+                                },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true,
+                                modifier = Modifier.width(96.dp),
+                                textStyle = androidx.compose.ui.text.TextStyle(textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            )
+                            FilledIconButton(
+                                onClick = {
+                                    val next = (kotlin.math.round(log.quantity).toInt() + 1).toDouble()
+                                    onUpdate(log.copy(quantity = next))
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Increase")
+                            }
                         }
                     }
                 }

@@ -18,6 +18,7 @@ enum class AppThemeColor(val key: String) {
 object ThemePreferences {
     private const val PREF_NAME = "theme_prefs"
     private const val KEY_THEME_COLOR = "theme_color"
+    private const val KEY_DARK_THEME = "dark_theme"
 
     fun getThemeColor(context: Context): AppThemeColor {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -28,5 +29,15 @@ object ThemePreferences {
     fun setThemeColor(context: Context, themeColor: AppThemeColor) {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString(KEY_THEME_COLOR, themeColor.key).apply()
+    }
+
+    fun isDarkTheme(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_DARK_THEME, false)
+    }
+
+    fun setDarkTheme(context: Context, dark: Boolean) {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_DARK_THEME, dark).apply()
     }
 }
