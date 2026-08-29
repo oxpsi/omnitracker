@@ -1,55 +1,57 @@
 package com.jonny.healthtrack.ai
 
 object AiPrompts {
-    fun getAnalysisPrompt(note: String): String {
+    /**
+     * The built-in analysis instructions. When a custom prompt is configured in
+     * Settings it replaces this text; the user's log note is always appended
+     * after it (images are attached as separate content parts either way).
+     */
+    const val DEFAULT_ANALYSIS_PROMPT = """Analyze the provided image(s) and notes. Identify the entry type and extract its constituents into the JSON structure below.
+
+Image roles: "Batch" images describe an aggregate (recipe, packaged food label, formulation). "Entry/Log" images describe a single consumption or observation event. Images are labeled 1-based (e.g. "Image 1: Batch") above the note.
+
+Output schema:
+{
+  "title": "",
+  "type": "",
+  "private": false,
+  "food_items": [],
+  "components": []
+}
+
+Field rules:
+- title: Short human-readable label (e.g. "Scrambled Eggs", "Ibuprofen 200mg"). Not to be super descriptive, but medications for example can include amounts if short.
+- type: One of "Food", "Medicine", "Supplement", "Stool", "Observation", or another Title Case type if none fit (spaces allowed for multi-word).
+- private: Boolean. Mark true for sensitive entries (Stool, sensitive Observations, or other non-standard sensitive types).
+- food_items: Higher-level list of total logged items/amounts (e.g. "Pork Tenderloin, 40 g", "Watermelon Juice, 200 ml", "1 tsp salt", brand products). Condenses the log before component analysis.
+- components: Complete breakdown — macros, micros, active ingredients, constituents, etc. Be nutritionally and medically accurate; estimate quantities from visible or implied data.
+
+Component rules (universal):
+- Baseline nutrient set to include for Food when applicable (extend with any noteworthy extras; omit any not biologically relevant). Use the exact names below — do not expand, abbreviate, or rephrase (e.g. "Omega-3", not "Omega-3 Fatty Acids"). Varying the name breaks downstream aggregation by unit type.
+  Energy (kcal), Protein (g), Carbohydrate (g), Total Fat (g), Saturated Fat (g), Trans Fat (g), Dietary Fiber (g), Soluble Fiber (g), Insoluble Fiber (g), Sugar (g), Added Sugars (g),
+  Sodium (mg), Potassium (mg), Calcium (mg), Iron (mg), Magnesium (mg), Phosphorus (mg), Zinc (mg), Selenium (mcg), Choline (mg),
+  Vitamin A (mcg RAE), Vitamin C (mg), Vitamin D (mcg), Vitamin E (mg), Vitamin K (mcg), Vitamin B1 (mg), Vitamin B2 (mg), Vitamin B3 (mg), Vitamin B6 (mg), Folate (mcg DFE), Vitamin B12 (mcg),
+  Omega-3 (g), Omega-6 (g)
+  (These extend beyond a standard FDA label. Use FDA label conventions where one is available; fill gaps by estimation.)
+- Data normalization: FDA Nutrition Facts label naming for food components (Title Case, Singular). Energy in kcal.
+- Solids: include a "Net Weight" estimate in grams (g) where it makes sense. Liquids: use appropriate volume estimates.
+- Units: short abbreviations only — g, mg, mcg, kcal, IU, cfu. Always "mcg" for micrograms (never μg). Never write out the full unit word. Preserve native/special units verbatim (IU, CFU, etc.); do not convert.
+- Sanity checks: Soluble + Insoluble Fiber should equal Dietary Fiber; macro-derived energy should largely sum to total Energy. Apply only when both sides are independently estimated.
+- For zero or negligible components, omit entirely. Include any compound present in biologically relevant, identifiable amounts.
+- Nutrition labels are often incomplete — don't omit a baseline nutrient just because any provided label omits it, unless the label explicitly states zero.
+- Component structure must be plain: name, unit, quantity — no parentheticals, no extra comments, no extra characters. This feeds an aggregation algorithm.
+
+Per-type rules:
+- Medicine / Supplement: Use generic name and active ingredients. Avoid brands unless the formulation is proprietary/unknown. Use specific chemical names when known.
+- Stool: Use standard clinical/pathology terminology. Describe stool using the Bristol Stool Scale (BSS 1-7).
+- Observation: Decompose text into standardized clinical English (terms a patient would understand). Format body-location signs as "Condition (Location)" (e.g. "Flushing (Ears)"). Map mental states to their clinical root (e.g. "Irritability") and isolate composite feelings. Default unit for sensations is "Intensity" (1-10); use "Count" for numeric quantities.
+
+Final strictness: Output only the specified fields and component name/unit/quantity triples. No commentary, no extra keys, no characters beyond what each rule requires."""
+
+    fun getAnalysisPrompt(note: String, customPrompt: String? = null): String {
         val safeNote = if (note.isBlank()) "(no note)" else note
-        return """
-Analyze the provided image(s) taking into account the user's note.
-Where multiple images are supplied, they are identified by 1-based labels
-(e.g. "Image 1: Batch", "Image 2: Log entry") included above the note. "Batch" generally means like a recipe/label/etc. "Log/Entry" is specific to the individual log entry.
-Identify and extract constituents into the specified JSON structure.
-
-Guidelines:
-- Title: A short, human-readable label for the item (e.g., "Scrambled Eggs", "Ibuprofen 200mg"). This should not include details.
-- Type: Short classification. Specifically use: 'Food', 'Medicine', 'Supplement', 'Stool', 'Observation' or another Title Case type if not fitting in those. Spaces if necessary for multi word.
-- Private: Boolean flag. Mark true for any sensitive entry such as Stool, sensitive Observations (or for other non-standard types that seem very sensitive.)
-- Components: Break down and list top components of the log entry. Such as macros and micros, active ingredients, constituants, etc.
-  Be precise, nutritionally, and medically accurate here, use your best judgement based on given data. Estimate quantities where visible or implied as accurately as possible.
-  
-  Data Normatlization: Use FDA Nutrition Facts label conventions for food (Title Case, Singular). Use kcal for energy quantities.
-
-  For most types dealing with solid matter, also include 'Net Weight' estimate, in grams (g). (unless it doesnt make sense to).
-  and for liquids try to use appropriate volume estimates.
-
-  For food, try to always include best estimate if present, in addition to anything else present, the basics:
-  'Energy', 'Protein', 'Carbohydrate', 'Total Fat', 'Saturated Fat', 'Trans Fat', 'Dietary Fiber', 'Soluble Fiber', 'Insoluble Fiber', 'Sugar', 'Sodium', 'Potassium'.
-
-  As well as any other noteworthy constituents, antioxidants, contaminants, etc.
-  Identify ingredients internally for calculation, but for returned components only use final aggregate nutritional and chemical profile, excluding itemized food components.
-
-  For units, use SI units. Never write out the full word.
-
-  For medicine and supplements: stick to Generic Name and 'active ingredients'. Avoid brands unless formulation is proprietary and unknown.
-  Be specific with chemical names if known.
-
-  For biological outputs (stool), stick to 'clinical reporting': Use standard clinical/pathology terminology. For stool, use 'Bristol Stool Scale' for consistency in description.
-  
-  For special units, stick to original specifications and avoid converting unless using external references. (IU, cfu, BSS, etc)
-  
-  For 'Observation' type, decompose text into components using standardized clinical English (terms patients would understand).
-  Format specific body parts as 'Condition (Location)' (e.g., 'hot ears' → 'Flushing (Ears)').
-  Map mental states to their clinical root (e.g., 'feeling irritated' → 'Irritability'). Isolate composite feelings.
-  Default unit to 'Intensity' (1-10) for sensations, use 'Count' for numeric quantities.
-
-  The above guidelines must be strict, do not add any additional comments or characters for component values (name, unit, quantity) as this is used in a aggregation algorithm.
-  (Don't let component names be complex like having paranthesis, etc)
-
-  For negligable or zero value components, just omit it entirely. Include any chemical/compound/component that is present in enough biologically relevant amounts and known/identified.
-  
-  For a very complex mixture, just include the most important ~30 components.
-
-User Note: "$safeNote"
-""".trimIndent()
+        val body = customPrompt?.takeIf { it.isNotBlank() } ?: DEFAULT_ANALYSIS_PROMPT
+        return "$body\n\nUser Note: \"$safeNote\""
     }
 
     /**
@@ -72,6 +74,11 @@ User Note: "$safeNote"
                     "type" to "boolean",
                     "description" to "True if the log should be hidden from the gallery"
                 ),
+                "food_items" to mapOf(
+                    "type" to "array",
+                    "description" to "Higher-level list of total logged items/amounts, condensing the log before component analysis",
+                    "items" to mapOf("type" to "string")
+                ),
                 "components" to mapOf(
                     "type" to "array",
                     "description" to "Primary components or ingredients",
@@ -87,7 +94,7 @@ User Note: "$safeNote"
                     )
                 )
             ),
-            "required" to listOf("title", "type", "private", "components"),
+            "required" to listOf("title", "type", "private", "food_items", "components"),
             "additionalProperties" to false
         )
     }

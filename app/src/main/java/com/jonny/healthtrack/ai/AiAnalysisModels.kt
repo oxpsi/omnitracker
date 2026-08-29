@@ -9,6 +9,7 @@ object AiAnalysisStatus {
     const val PENDING = "pending"
     const val COMPLETE = "complete"
     const val ERROR = "error"
+    const val CANCELLED_MESSAGE = "Analysis cancelled"
 }
 
 data class AiAnalysisComponent(
@@ -20,6 +21,8 @@ data class AiAnalysisComponent(
 data class AiAnalysisResult(
     val title: String? = null,
     val type: String? = null,
+    @SerializedName("food_items")
+    val foodItems: List<String> = emptyList(),
     val components: List<AiAnalysisComponent> = emptyList(),
     @SerializedName("private")
     val isPrivate: Boolean = false

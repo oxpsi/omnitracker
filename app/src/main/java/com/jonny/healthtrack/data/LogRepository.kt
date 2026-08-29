@@ -135,7 +135,7 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
         val imageLabels = analysisImages.map { it.label }
         val contextPreamble = buildImageContextPreamble(imageLabels)
         val analysisText = contextPreamble + buildAnalysisNote(pendingUpdate, recipeDao)
-        val result = aiService.analyzeLog(context, analysisImages.map { it.file }, analysisText)
+        val result = aiService.analyzeLog(context, analysisImages.map { it.file }, analysisText, log.id)
         val now = System.currentTimeMillis()
 
         return@withContext if (result.isSuccess) {
@@ -158,11 +158,13 @@ class LogRepository(private val context: Context, private val logDao: LogDao, pr
             logDao.insertLog(updated)
             Result.success(updated)
         } else {
+            val error = result.exceptionOrNull()
+            val cancelled = error?.message == AiAnalysisStatus.CANCELLED_MESSAGE
             val refreshed = logDao.getLogById(log.id) ?: pendingUpdate
             val updated = refreshed.copy(
-                analysisStatus = AiAnalysisStatus.ERROR,
+                analysisStatus = if (cancelled) null else AiAnalysisStatus.ERROR,
                 analysisUpdatedAt = now,
-                analysisError = result.exceptionOrNull()?.message
+                analysisError = if (cancelled) null else error?.message
             )
             logDao.insertLog(updated)
             Result.failure(result.exceptionOrNull() ?: IllegalStateException("AI analysis failed"))

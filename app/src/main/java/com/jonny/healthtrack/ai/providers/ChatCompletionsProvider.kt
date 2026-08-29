@@ -3,8 +3,10 @@ package com.jonny.healthtrack.ai.providers
 import android.util.Base64
 import com.google.gson.Gson
 import com.google.gson.JsonParser
+import com.jonny.healthtrack.ai.AiAnalysisStatus
 import com.jonny.healthtrack.ai.AiPrompts
 import com.jonny.healthtrack.util.encodeImageForAiUpload
+import kotlin.jvm.Volatile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -14,10 +16,23 @@ import java.net.URL
 class ChatCompletionsProvider(
     private val apiKey: String = "",
     private val model: String = "",
-    private val baseUrl: String = "https://api.openai.com/v1"
+    private val baseUrl: String = "https://api.openai.com/v1",
+    private val promptTemplate: String? = null
 ) : AiProvider {
 
+    @Volatile private var cancelled = false
+    @Volatile private var activeConnection: HttpURLConnection? = null
+
+    override val isCancelled: Boolean get() = cancelled
+
+    override fun cancel() {
+        cancelled = true
+        // Forcibly close an in-flight connection so a blocked read aborts immediately.
+        activeConnection?.disconnect()
+    }
+
     override suspend fun analyzeLog(imageFiles: List<File>, note: String, userId: String, reasoningLevel: String): Result<String> = withContext(Dispatchers.IO) {
+        if (cancelled) return@withContext Result.failure(IllegalStateException(AiAnalysisStatus.CANCELLED_MESSAGE))
         if (apiKey.isBlank()) return@withContext Result.failure(IllegalStateException("Missing API key"))
         if (model.isBlank()) return@withContext Result.failure(IllegalStateException("No model selected"))
 
@@ -27,7 +42,7 @@ class ChatCompletionsProvider(
             Base64.encodeToString(bytes, Base64.NO_WRAP) to "image/jpeg"
         }
 
-        val url = URL("${baseUrl.trimEnd('/')}/chat/completions")
+        val url = URL("${normalizeBaseUrl(baseUrl)}/chat/completions")
         val requestBody = buildChatCompletionsRequestBody(encodedImages, note, userId, reasoningLevel)
 
         val connection = (url.openConnection() as HttpURLConnection).apply {
@@ -38,6 +53,7 @@ class ChatCompletionsProvider(
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Authorization", "Bearer $apiKey")
         }
+        activeConnection = connection
 
         try {
             connection.outputStream.use { outputStream ->
@@ -58,14 +74,15 @@ class ChatCompletionsProvider(
             JsonParser.parseString(jsonText)
             Result.success(jsonText.trim())
         } catch (e: Exception) {
-            Result.failure(e)
+            if (cancelled) Result.failure(IllegalStateException(AiAnalysisStatus.CANCELLED_MESSAGE)) else Result.failure(e)
         } finally {
+            activeConnection = null
             connection.disconnect()
         }
     }
 
     private fun buildChatCompletionsRequestBody(images: List<Pair<String, String>>, note: String, userId: String, reasoningLevel: String): String {
-        val prompt = AiPrompts.getAnalysisPrompt(note)
+        val prompt = AiPrompts.getAnalysisPrompt(note, promptTemplate)
         val schemaStructure = AiPrompts.getAnalysisSchemaStructure()
 
         val jsonSchema = mapOf(
@@ -138,9 +155,21 @@ class ChatCompletionsProvider(
     }
 
     companion object {
+        const val CANCELLED_MESSAGE = "Analysis cancelled"
+
+        /**
+         * Ensures the URL has a scheme. Defaults to http:// so plain-HTTP LAN
+         * endpoints (e.g. vLLM at http://192.168.x.x:8000/v1) work, including
+         * when the user omits the scheme entirely.
+         */
+        fun normalizeBaseUrl(raw: String): String {
+            val trimmed = raw.trim().trimEnd('/')
+            return if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) trimmed else "http://$trimmed"
+        }
+
         fun discoverModels(baseUrl: String, apiKey: String): Result<List<String>> {
             if (apiKey.isBlank()) return Result.failure(IllegalStateException("Missing API key"))
-            val url = URL("${baseUrl.trimEnd('/')}/models")
+            val url = URL("${normalizeBaseUrl(baseUrl)}/models")
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 30_000

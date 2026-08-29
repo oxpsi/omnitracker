@@ -10,6 +10,7 @@ object AiPreferences {
     private const val KEY_MODEL = "chat_model"
     private const val KEY_DISCOVERED_MODELS = "chat_discovered_models"
     private const val KEY_REASONING_LEVEL = "chat_reasoning_level"
+    private const val KEY_ANALYSIS_PROMPT = "analysis_prompt"
 
     val DEFAULT_BASE_URL = "https://api.openai.com/v1"
     private val reasoningOptions = listOf("low", "medium", "high")
@@ -76,6 +77,16 @@ object AiPreferences {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val normalized = if (level in reasoningOptions) level else defaultReasoning
         prefs.edit().putString(KEY_REASONING_LEVEL, normalized).apply()
+    }
+
+    fun getCustomPrompt(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_ANALYSIS_PROMPT, null) ?: ""
+    }
+
+    fun setCustomPrompt(context: Context, prompt: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_ANALYSIS_PROMPT, prompt.trim()).apply()
     }
 
     val reasoningOptionList: List<String> get() = reasoningOptions

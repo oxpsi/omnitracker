@@ -40,5 +40,10 @@ object AiAnalysisWork {
         WorkManager.getInstance(context.applicationContext)
             .enqueueUniqueWork(uniqueWorkName(logId), policy, request)
     }
+
+    fun cancel(context: Context, logId: String) {
+        WorkManager.getInstance(context.applicationContext)
+            .cancelUniqueWork(uniqueWorkName(logId))
+    }
 }
 

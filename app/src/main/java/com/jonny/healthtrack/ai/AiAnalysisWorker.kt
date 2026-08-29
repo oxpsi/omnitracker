@@ -43,7 +43,7 @@ class AiAnalysisWorker(
         val imageLabels = analysisImages.map { it.label }
         val contextPreamble = com.jonny.healthtrack.data.buildImageContextPreamble(imageLabels)
         val analysisText = contextPreamble + com.jonny.healthtrack.data.buildAnalysisNote(pendingUpdate, recipeDao)
-        val result = aiService.analyzeLog(applicationContext, analysisImages.map { it.file }, analysisText)
+        val result = aiService.analyzeLog(applicationContext, analysisImages.map { it.file }, analysisText, logId)
         val now = System.currentTimeMillis()
 
         return if (result.isSuccess) {
@@ -67,7 +67,17 @@ class AiAnalysisWorker(
             Result.success()
         } else {
             val error = result.exceptionOrNull()
-            if (error != null && isRetryable(error)) {
+            if (error?.message == AiAnalysisStatus.CANCELLED_MESSAGE || isStopped) {
+                // Cancelled by the user: clear the pending status so the UI returns to idle.
+                val refreshed = logDao.getLogById(logId) ?: pendingUpdate
+                val updated = refreshed.copy(
+                    analysisStatus = null,
+                    analysisUpdatedAt = now,
+                    analysisError = null
+                )
+                logDao.insertLog(updated)
+                Result.failure()
+            } else if (error != null && isRetryable(error)) {
                 val refreshed = logDao.getLogById(logId) ?: pendingUpdate
                 // Keep status as pending so UI doesn't show a "final" error while WorkManager retries.
                 val updated = refreshed.copy(

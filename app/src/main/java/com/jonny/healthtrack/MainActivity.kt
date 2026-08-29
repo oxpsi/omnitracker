@@ -53,10 +53,14 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.Icecream
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Lens
 import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.QuestionMark
@@ -83,6 +87,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -101,7 +106,10 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.google.android.gms.location.LocationServices
 import com.jonny.healthtrack.ai.AiAnalysisStatus
+import com.jonny.healthtrack.ai.AiAnalysisService
+import com.jonny.healthtrack.ai.AiAnalysisWork
 import com.jonny.healthtrack.ai.AiPreferences
+import com.jonny.healthtrack.ai.AiPrompts
 import com.jonny.healthtrack.ai.latestAiAnalysis
 import com.jonny.healthtrack.ai.providers.ChatCompletionsProvider
 import com.jonny.healthtrack.data.AppDatabase
@@ -378,7 +386,7 @@ fun AppContent(
         scope.launch {
             val imageFile = imagePath.takeIf { it.isNotEmpty() }?.let { File(it) }
             getLastLocation(context) { lat, long ->
-                createLog(imageFile, note, lat, long, false, null, recipeId)
+                createLog(imageFile, note, lat, long, true, null, recipeId)
             }
         }
     }
@@ -394,6 +402,19 @@ fun AppContent(
 	            if (showErrors) {
 	                Toast.makeText(context, "Analysis queued (runs in background)", Toast.LENGTH_SHORT).show()
 	            }
+	        }
+	    }
+
+	    fun cancelAnalysis(log: LogEntity) {
+	        AiAnalysisWork.cancel(context, log.id)
+	        AiAnalysisService.cancel(log.id)
+	        scope.launch {
+	            repository.updateLog(log.copy(
+	                analysisStatus = null,
+	                analysisError = null,
+	                analysisUpdatedAt = System.currentTimeMillis()
+	            ))
+	            Toast.makeText(context, "Analysis cancelled", Toast.LENGTH_SHORT).show()
 	        }
 	    }
 
@@ -444,6 +465,9 @@ fun AppContent(
                                         },
                                         onAnalyze = { logToAnalyze ->
                                             requestAnalysis(logToAnalyze, force = true, showErrors = true)
+                                        },
+                                        onCancelAnalysis = { logToCancel ->
+                                            cancelAnalysis(logToCancel)
                                         },
                                         onViewRecipe = { recipeId ->
                                             currentScreen = Screen.Recipes(openRecipeId = recipeId)
@@ -570,6 +594,9 @@ fun AppContent(
                             },
                             onAnalyze = { logToAnalyze ->
                                 requestAnalysis(logToAnalyze, force = true, showErrors = true)
+                            },
+                            onCancelAnalysis = { logToCancel ->
+                                cancelAnalysis(logToCancel)
                             },
                             onViewRecipe = { recipeId ->
                                 currentScreen = Screen.Recipes(openRecipeId = recipeId)
@@ -767,7 +794,7 @@ fun HomeScreen(
                         long,
                         false, // Original = false (Reuse)
                         if (note == template.note) template else null, // Reuse analysis if note unchanged
-                        null
+                        template.recipeId // Preserve recipe association on reuse
                     )
                     showReuseNoteDialog = false
                     reuseTemplateLog = null
@@ -1195,11 +1222,27 @@ fun DaySummaryScreen(
                                                     if (log.imagePath.isEmpty() && log.recipeId != null && !log.isPrivate) {
                                                         val recipeImg = LocalRecipeImages.current[log.recipeId]
                                                         if (recipeImg != null) {
-                                                            RecipeDerivedThumbnail(
-                                                                recipeImagePath = recipeImg,
-                                                                modifier = Modifier.size(32.dp),
-                                                                cornerRadius = 4.dp
-                                                            )
+                                                            Box(contentAlignment = Alignment.BottomEnd) {
+                                                                RecipeDerivedThumbnail(
+                                                                    recipeImagePath = recipeImg,
+                                                                    modifier = Modifier.size(32.dp),
+                                                                    cornerRadius = 4.dp
+                                                                )
+                                                                if (!log.isOriginalImage) {
+                                                                    Box(
+                                                                        modifier = Modifier
+                                                                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(topStart = 2.dp))
+                                                                            .padding(1.dp)
+                                                                    ) {
+                                                                        Icon(
+                                                                            Icons.Default.Refresh,
+                                                                            null,
+                                                                            tint = Color.White,
+                                                                            modifier = Modifier.size(8.dp)
+                                                                        )
+                                                                    }
+                                                                }
+                                                            }
                                                         } else {
                                                             Box(
                                                                 modifier = Modifier
@@ -1358,6 +1401,40 @@ fun DatabaseStatsCard(repository: LogRepository) {
     }
 }
 
+private enum class SettingsSection(val title: String) {
+    Appearance("Appearance"),
+    AI("AI Analysis"),
+    Data("Data")
+}
+
+@Composable
+private fun SettingsNavRow(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+        }
+        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -1389,6 +1466,18 @@ fun SettingsScreen(
     var reasoningLevel by remember { mutableStateOf(AiPreferences.getReasoningLevel(context)) }
     var reasoningMenuExpanded by remember { mutableStateOf(false) }
     val reasoningOptions = AiPreferences.reasoningOptionList
+
+    // Custom analysis prompt (shows the currently used prompt; falls back to built-in default)
+    var analysisPrompt by remember {
+        mutableStateOf(
+            AiPreferences.getCustomPrompt(context).takeIf { it.isNotBlank() }
+                ?: AiPrompts.DEFAULT_ANALYSIS_PROMPT
+        )
+    }
+
+    // Settings sub-page navigation (null = hub)
+    var section by rememberSaveable { mutableStateOf<SettingsSection?>(null) }
+    BackHandler(enabled = section != null) { section = null }
 
     // Export State
     var showExportDialog by remember { mutableStateOf(false) }
@@ -1521,14 +1610,22 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
-                navigationIcon = if (showBackButton) {
-                    {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.Default.ArrowBack, "Back")
+                title = { Text(section?.title ?: "Settings") },
+                navigationIcon = {
+                    when {
+                        section != null -> {
+                            IconButton(onClick = { section = null }) {
+                                Icon(Icons.Default.ArrowBack, "Back")
+                            }
                         }
+                        showBackButton -> {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.Default.ArrowBack, "Back")
+                            }
+                        }
+                        else -> {}
                     }
-                } else ({}),
+                },
                 actions = {
                     if (showCloseButton) {
                         IconButton(onClick = onBack) {
@@ -1545,54 +1642,70 @@ fun SettingsScreen(
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            // --- Appearance ---
-            Text("Appearance", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Dark Theme", style = MaterialTheme.typography.bodyLarge)
-                Switch(checked = isDarkTheme, onCheckedChange = { onToggleTheme() })
-            }
-
-            Spacer(Modifier.height(16.dp))
-            Text("Color Theme", style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.height(12.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                AppThemeColor.values().forEach { color ->
-                    val colorValue = when (color) {
-                         AppThemeColor.Green -> Color(0xFF4CAF50)
-                         AppThemeColor.Blue -> Color(0xFF2196F3)
-                         AppThemeColor.Red -> Color(0xFFF44336)
-                         AppThemeColor.Purple -> Color(0xFF9C27B0)
-                         AppThemeColor.Orange -> Color(0xFFFF9800)
-                         AppThemeColor.Teal -> Color(0xFF009688)
-                    }
-                    
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(colorValue)
-                            .clickable { onThemeColorChange(color) }
-                            .then(
-                                if (themeColor == color) {
-                                    Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                } else Modifier
-                            )
-                    )
+            when (section) {
+                null -> {
+                    SettingsNavRow(
+                        title = "Appearance",
+                        subtitle = "Dark theme and accent colors",
+                        icon = Icons.Default.Palette
+                    ) { section = SettingsSection.Appearance }
+                    SettingsNavRow(
+                        title = "AI Analysis",
+                        subtitle = "Endpoint, model, reasoning and prompt",
+                        icon = Icons.Default.SmartToy
+                    ) { section = SettingsSection.AI }
+                    SettingsNavRow(
+                        title = "Data",
+                        subtitle = "Export, import, database and deletion",
+                        icon = Icons.Default.Storage
+                    ) { section = SettingsSection.Data }
                 }
-            }
+                SettingsSection.Appearance -> {
+                    Text("Appearance", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Dark Theme", style = MaterialTheme.typography.bodyLarge)
+                        Switch(checked = isDarkTheme, onCheckedChange = { onToggleTheme() })
+                    }
 
-            Divider(Modifier.padding(vertical = 16.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text("Color Theme", style = MaterialTheme.typography.bodyLarge)
+                    Spacer(Modifier.height(12.dp))
 
-            // --- AI Analysis ---
-            Text("AI Analysis", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        AppThemeColor.values().forEach { color ->
+                            val colorValue = when (color) {
+                                 AppThemeColor.Green -> Color(0xFF4CAF50)
+                                 AppThemeColor.Blue -> Color(0xFF2196F3)
+                                 AppThemeColor.Red -> Color(0xFFF44336)
+                                 AppThemeColor.Purple -> Color(0xFF9C27B0)
+                                 AppThemeColor.Orange -> Color(0xFFFF9800)
+                                 AppThemeColor.Teal -> Color(0xFF009688)
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(colorValue)
+                                    .clickable { onThemeColorChange(color) }
+                                    .then(
+                                        if (themeColor == color) {
+                                            Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                                        } else Modifier
+                                    )
+                            )
+                        }
+                    }
+                }
+                SettingsSection.AI -> {
+                    Text("AI Analysis", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1805,8 +1918,32 @@ fun SettingsScreen(
                 }
             }
 
-            Divider(Modifier.padding(vertical = 16.dp))
-
+            Spacer(Modifier.height(24.dp))
+            Text("Analysis Prompt", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Text(
+                "The prompt currently used for analysis. Your text is sent first and the log note is automatically appended after it. Edits are saved automatically.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = analysisPrompt,
+                onValueChange = {
+                    analysisPrompt = it
+                    AiPreferences.setCustomPrompt(context, it)
+                },
+                label = { Text("Custom prompt") },
+                minLines = 6,
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextButton(onClick = {
+                analysisPrompt = AiPrompts.DEFAULT_ANALYSIS_PROMPT
+                AiPreferences.setCustomPrompt(context, "")
+            }) {
+                Text("Use default prompt")
+            }
+                }
+                SettingsSection.Data -> {
             // --- Export ---
             Text("Export Data", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(8.dp))
@@ -1931,6 +2068,8 @@ fun SettingsScreen(
                 Spacer(Modifier.width(8.dp))
                 Text("Delete App Data")
             }
+                }
+            }
         }
     }
 }
@@ -1944,6 +2083,7 @@ fun DetailScreen(
     onUpdate: (LogEntity) -> Unit,
     onAddLog: (File?, String, Double?, Double?, Boolean, LogEntity?, String?) -> Unit,
     onAnalyze: (LogEntity) -> Unit,
+    onCancelAnalysis: (LogEntity) -> Unit,
     onViewRecipe: (String) -> Unit,
     aiEnabled: Boolean,
     showBackButton: Boolean,
@@ -2046,7 +2186,7 @@ fun DetailScreen(
                         long,
                         false,
                         if (note == log.note) log else null,
-                        null
+                        log.recipeId // Preserve recipe association on reuse
                     )
                     showReuseNoteDialog = false
                 }
@@ -2109,10 +2249,32 @@ fun DetailScreen(
                 if (log.imagePath.isEmpty() && log.recipeId != null && !log.isPrivate) {
                     val recipeImg = LocalRecipeImages.current[log.recipeId]
                     if (recipeImg != null) {
-                        RecipeDerivedThumbnail(
-                            recipeImagePath = recipeImg,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 400.dp)
-                        )
+                        Box(contentAlignment = Alignment.BottomEnd) {
+                            RecipeDerivedThumbnail(
+                                recipeImagePath = recipeImg,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 400.dp)
+                            )
+                            if (!log.isOriginalImage) {
+                                Surface(
+                                    shape = RoundedCornerShape(topStart = 8.dp),
+                                    color = Color.Black.copy(alpha = 0.6f)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Refresh,
+                                            contentDescription = "Reused",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Reused", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         Box(
                             modifier = Modifier.matchParentSize(),
@@ -2242,6 +2404,12 @@ fun DetailScreen(
                                 if (isAnalyzing) {
                                     Text("Analyzing...", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
                                     Spacer(Modifier.width(8.dp))
+                                    TextButton(
+                                        onClick = { onCancelAnalysis(log) },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                    ) {
+                                        Text("Stop", style = MaterialTheme.typography.labelMedium)
+                                    }
                                 }
                                 
                                 if (log.analysisStatus == AiAnalysisStatus.ERROR || analysis != null) {
@@ -2253,6 +2421,12 @@ fun DetailScreen(
                                                 buildString {
                                                     append("Title: ${analysis?.title}\n")
                                                     append("Type: ${analysis?.type}\n")
+                                                    if (!analysis?.foodItems.isNullOrEmpty()) {
+                                                        append("Food Items:\n")
+                                                        analysis?.foodItems?.forEach {
+                                                            append("- $it\n")
+                                                        }
+                                                    }
                                                     if (!analysis?.components.isNullOrEmpty()) {
                                                         append("Components:\n")
                                                         analysis?.components?.forEach { 
@@ -2332,6 +2506,16 @@ fun DetailScreen(
                                 text = "Type: ${analysis.type ?: "Unknown"}",
                                 style = MaterialTheme.typography.bodyMedium
                             )
+                            if (analysis.foodItems.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("Food Items", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                                analysis.foodItems.forEach { item ->
+                                    Text(
+                                        text = "• $item",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            }
                             // Components are rendered in their own section below.
                         } else if (log.analysisStatus == AiAnalysisStatus.COMPLETE) {
                             Spacer(Modifier.height(12.dp))
@@ -2548,10 +2732,26 @@ fun LogItem(log: LogEntity, onClick: () -> Unit) {
             if (log.imagePath.isEmpty() && log.recipeId != null && !log.isPrivate) {
                 val recipeImg = LocalRecipeImages.current[log.recipeId]
                 if (recipeImg != null) {
-                    RecipeDerivedThumbnail(
-                        recipeImagePath = recipeImg,
-                        modifier = Modifier.width(80.dp).fillMaxHeight()
-                    )
+                    Box(contentAlignment = Alignment.BottomEnd) {
+                        RecipeDerivedThumbnail(
+                            recipeImagePath = recipeImg,
+                            modifier = Modifier.width(80.dp).fillMaxHeight()
+                        )
+                        if (!log.isOriginalImage) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(topStart = 4.dp))
+                                    .padding(4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
                 } else {
                     Box(
                         modifier = Modifier
@@ -2564,6 +2764,15 @@ fun LogItem(log: LogEntity, onClick: () -> Unit) {
                     }
                 }
             } else if (log.imagePath.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .width(80.dp)
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.secondary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("T", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                }
             } else if (log.isPrivate) {
                 Box(
                     modifier = Modifier
