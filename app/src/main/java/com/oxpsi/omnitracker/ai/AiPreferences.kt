@@ -11,6 +11,7 @@ object AiPreferences {
     private const val KEY_DISCOVERED_MODELS = "chat_discovered_models"
     private const val KEY_REASONING_LEVEL = "chat_reasoning_level"
     private const val KEY_ANALYSIS_PROMPT = "analysis_prompt"
+    private const val KEY_SETUP_WARNING_SHOWN = "ai_setup_warning_shown"
 
     val DEFAULT_BASE_URL = "https://api.openai.com/v1"
     private val reasoningOptions = listOf("low", "medium", "high")
@@ -90,4 +91,24 @@ object AiPreferences {
     }
 
     val reasoningOptionList: List<String> get() = reasoningOptions
+
+    /**
+     * Returns true when AI analysis is ready to run: enabled, with a non-blank
+     * API key and model. Used to decide whether to show the first-run notice.
+     */
+    fun isConfigured(context: Context): Boolean {
+        return isEnabled(context) &&
+            getApiKey(context).isNotBlank() &&
+            getModel(context).isNotBlank()
+    }
+
+    fun hasShownSetupWarning(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_SETUP_WARNING_SHOWN, false)
+    }
+
+    fun markSetupWarningShown(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_SETUP_WARNING_SHOWN, true).apply()
+    }
 }

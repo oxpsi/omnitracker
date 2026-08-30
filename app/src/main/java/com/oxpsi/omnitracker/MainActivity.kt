@@ -373,12 +373,46 @@ fun AppContent(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var aiEnabled by remember { mutableStateOf(AiPreferences.isEnabled(context)) }
-    
+
     val logs by repository.allLogs.collectAsState(initial = emptyList())
     val recipes by recipeRepository.allRecipes.collectAsState(initial = emptyList())
     val recipeImageMap = remember(recipes) { recipes.associate { it.id to it.imagePath }.filterValues { it.isNotEmpty() } }
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+
+    // One-time notice when AI analysis isn't configured yet.
+    var showAiSetupWarning by remember {
+        mutableStateOf(!AiPreferences.isConfigured(context) && !AiPreferences.hasShownSetupWarning(context))
+    }
+    if (showAiSetupWarning) {
+        AlertDialog(
+            onDismissRequest = {
+                AiPreferences.markSetupWarningShown(context)
+                showAiSetupWarning = false
+            },
+            title = { Text("AI analysis not configured") },
+            text = {
+                Text(
+                    "OmniTracker works fully offline for local logging — your photos and notes are saved on-device. " +
+                    "AI nutrition and component analysis is optional and runs only after you configure a chat-completions " +
+                    "endpoint (base URL, API key, and model) in Settings."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    AiPreferences.markSetupWarningShown(context)
+                    showAiSetupWarning = false
+                    currentScreen = Screen.Settings
+                }) { Text("Open Settings") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    AiPreferences.markSetupWarningShown(context)
+                    showAiSetupWarning = false
+                }) { Text("Got it") }
+            }
+        )
+    }
 
     val datesWithEntries = remember(logs) {
         logs.mapTo(mutableSetOf()) { log ->
