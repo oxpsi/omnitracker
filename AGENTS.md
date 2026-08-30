@@ -12,7 +12,7 @@
 *   **Data Storage:** 
     *   Metadata: SQLite via Room (`omnitracker_database`).
     *   Images: `getExternalFilesDir(Environment.DIRECTORY_PICTURES)` (Private app storage).
-*   **AI Analysis:** Single OpenAI-compatible chat completions provider (user-configurable base URL, API key, organization, model). NO more Gemini, Responses API, or dual-provider fallback.
+*   **AI Analysis:** Single OpenAI-compatible chat completions provider (user-configurable base URL, API key, model). NO more Gemini, Responses API, or dual-provider fallback.
 
 ## 🚀 Current MVP Features
 1.  **Camera Capture:** Uses `ActivityResultContracts.TakePicture()` to launch system camera.
@@ -22,7 +22,7 @@
 5.  **History:** Date-based horizontal scroll selector to view past entries.
 6.  **AI Analysis:** Analyzes photos to extract Title, Type (Food/Medicine/etc), and Components (Ingredients/Qty).
     *   Supports structured data extraction.
-    *   User-configured endpoint via in-app Settings (base URL, API key, organization, model). Settings persist in SharedPreferences (`ai_settings`) and survive app updates.
+    *   User-configured endpoint via in-app Settings (base URL, API key, model). Settings persist in SharedPreferences (`ai_settings`) and survive app updates.
 7.  **Persistence:** Data survives app restarts via Room Database.
 8.  **Import/Export:** Supports JSONL (Lite) and ZIP (Full with images) backup/restore.
 

@@ -2,7 +2,7 @@
 
 A broad, simple health-logging app for tracking "anything and everything" with a focus on **nutrition** — snap a photo of a meal, supplement, or anything else, and get an automated nutrition and component breakdown alongside your log. Also tracks medications, stool, mood, and general wellness entries via quick photo capture and notes.
 
-**Works with any multimodal chat-completions endpoint.** OmniTracker speaks the standard OpenAI chat-completions API, so any provider that supports vision/image inputs (OpenAI, OpenRouter, local Ollama/Llama.cpp with vision models, LM Studio, etc.) works out of the box. You configure base URL, API key, organization, and model in-app; nothing is hardcoded to a specific vendor.
+**Works with any multimodal chat-completions endpoint.** OmniTracker speaks the standard OpenAI chat-completions API, so any provider that supports vision/image inputs (OpenAI, OpenRouter, local Ollama/Llama.cpp with vision models, LM Studio, etc.) works out of the box. You configure base URL, API key, and model in-app; nothing is hardcoded to a specific vendor.
 
 **Core philosophy:** super simple, low friction. Sensitive health photos stay in app-private storage, separate from your main camera roll.
 
@@ -14,7 +14,7 @@ A broad, simple health-logging app for tracking "anything and everything" with a
 - **Quick notes** — immediate text-note prompt after each capture.
 - **History** — date-based selector to browse past entries, with day-level nutrition rollups (calories, macros, component aggregation, and caloric-contribution percentages).
 - **Nutrition analysis** — the AI extracts per-entry Title, Type (food/medicine/etc.), and Components (ingredients with quantities), enabling calorie and macro estimates per log and per day.
-- **AI analysis (bring your own endpoint)** — uses any multimodal OpenAI-compatible chat-completions endpoint (base URL, API key, organization, model all user-configurable in Settings). Supports a model discovery list when the endpoint exposes one. Settings persist across app updates.
+- **AI analysis (bring your own endpoint)** — uses any multimodal OpenAI-compatible chat-completions endpoint (base URL, API key, and model all user-configurable in Settings). Supports a model discovery list when the endpoint exposes one. Settings persist across app updates.
 - **Persistence** — Room database; data survives app restarts.
 - **Import / Export** — JSONL (lite, metadata only) and ZIP (full, with images) backup/restore.
 
