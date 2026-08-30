@@ -35,7 +35,7 @@ Component rules (universal):
   (These extend beyond a standard FDA label. Use FDA label conventions where one is available; fill gaps by estimation.)
 - Data normalization: FDA Nutrition Facts label naming for food components (Title Case, Singular). Energy in kcal.
 - Solids: include a "Net Weight" estimate in grams (g) where it makes sense. Liquids: use appropriate volume estimates.
-- Units: short abbreviations only — g, mg, mcg, kcal, IU, cfu. Always "mcg" for micrograms (never μg). Never write out the full unit word. Preserve native/special units verbatim (IU, CFU, etc.); do not convert.
+- Units: short abbreviations only, all lowercase, no special characters — g, mg, mcg, kcal, iu, cfu. Always "mcg" for micrograms (never μg or ug). Never write out the full unit word. Preserve native/special units verbatim (iu, cfu, etc.); do not convert.
 - Sanity checks: Soluble + Insoluble Fiber should equal Dietary Fiber; macro-derived energy should largely sum to total Energy. Apply only when both sides are independently estimated.
 - For zero or negligible components, omit entirely. Include any compound present in biologically relevant, identifiable amounts.
 - Nutrition labels are often incomplete — don't omit a baseline nutrient just because any provided label omits it, unless the label explicitly states zero.
