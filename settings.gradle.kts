@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "HealthTrack"
+rootProject.name = "omnitracker"
 include(":app")
