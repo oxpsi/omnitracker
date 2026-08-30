@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.Icecream
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.Lens
 import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.LocalFireDepartment
@@ -91,6 +93,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -135,7 +138,9 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import java.time.temporal.WeekFields
 import java.util.*
 
 // --- Navigation State ---
@@ -143,6 +148,7 @@ sealed class Screen {
     object Home : Screen()
     object Settings : Screen()
     object DaySummary : Screen()
+    object DatePicker : Screen()
     data class Recipes(val openRecipeId: String? = null) : Screen()
     data class Detail(val logId: String) : Screen()
 }
@@ -337,6 +343,17 @@ fun AppContent(
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
 
+    val datesWithEntries = remember(logs) {
+        logs.mapTo(mutableSetOf()) { log ->
+            Instant.ofEpochMilli(log.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
+        }
+    }
+
+    fun navigateToDate(date: LocalDate) {
+        selectedDate = date
+        currentScreen = Screen.Home
+    }
+
     CompositionLocalProvider(LocalRecipeImages provides recipeImageMap) {
 
     fun toggleSettingsPane() {
@@ -438,6 +455,7 @@ fun AppContent(
                         onNavigateToRecipes = { currentScreen = Screen.Recipes() },
                         onNavigateToDetail = { logId -> currentScreen = Screen.Detail(logId) },
                         onNavigateToDaySummary = { currentScreen = Screen.DaySummary },
+                        onNavigateToCalendar = { currentScreen = Screen.DatePicker },
                         isWideScreen = true
                     )
                 }
@@ -492,6 +510,14 @@ fun AppContent(
                                     showCloseButton = true
                                 )
                             }
+                            Screen.DatePicker -> CalendarScreen(
+                                selectedDate = selectedDate,
+                                datesWithEntries = datesWithEntries,
+                                onDateSelected = { navigateToDate(it) },
+                                onBack = { currentScreen = Screen.Home },
+                                showBackButton = false,
+                                showCloseButton = true
+                            )
                             Screen.Settings -> SettingsScreen(
                                 isDarkTheme = isDarkTheme,
                                 onToggleTheme = onToggleTheme,
@@ -536,7 +562,16 @@ fun AppContent(
                     onNavigateToRecipes = { currentScreen = Screen.Recipes() },
                     onNavigateToDetail = { logId -> currentScreen = Screen.Detail(logId) },
                     onNavigateToDaySummary = { currentScreen = Screen.DaySummary },
+                    onNavigateToCalendar = { currentScreen = Screen.DatePicker },
                     isWideScreen = false
+                )
+                Screen.DatePicker -> CalendarScreen(
+                    selectedDate = selectedDate,
+                    datesWithEntries = datesWithEntries,
+                    onDateSelected = { navigateToDate(it) },
+                    onBack = { currentScreen = Screen.Home },
+                    showBackButton = true,
+                    showCloseButton = false
                 )
                 Screen.Settings -> SettingsScreen(
                     isDarkTheme = isDarkTheme,
@@ -627,6 +662,7 @@ fun HomeScreen(
     onNavigateToRecipes: () -> Unit,
     onNavigateToDetail: (String) -> Unit,
     onNavigateToDaySummary: () -> Unit,
+    onNavigateToCalendar: () -> Unit,
     isWideScreen: Boolean
 ) {
     val context = LocalContext.current
@@ -968,8 +1004,19 @@ fun HomeScreen(
                     }
                 }
                 
-                DateSelector(selectedDate) { newDate ->
-                    onSelectedDateChange(newDate)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        DateSelector(selectedDate) { newDate ->
+                            onSelectedDateChange(newDate)
+                        }
+                    }
+                    CalendarIconButton(onClick = onNavigateToCalendar)
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Divider()
@@ -980,6 +1027,7 @@ fun HomeScreen(
             val componentSummary = remember(filteredLogs) { aggregateFoodComponents(filteredLogs) }
             LogList(
                 logs = filteredLogs,
+                selectedDate = selectedDate,
                 onLogClick = { onNavigateToDetail(it.id) },
                 onDaySummaryClick = onNavigateToDaySummary,
                 daySummaryCount = componentSummary.size
@@ -2651,6 +2699,7 @@ fun DetailScreen(
 @Composable
 fun LogList(
     logs: List<LogEntity>,
+    selectedDate: LocalDate,
     onLogClick: (LogEntity) -> Unit,
     onDaySummaryClick: () -> Unit,
     daySummaryCount: Int
@@ -2665,7 +2714,11 @@ fun LogList(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                DaySummaryCard(daySummaryCount = daySummaryCount, onClick = onDaySummaryClick)
+                DaySummaryCard(
+                    daySummaryCount = daySummaryCount,
+                    selectedDate = selectedDate,
+                    onClick = onDaySummaryClick
+                )
             }
             items(logs) { log ->
                 LogItem(log, onClick = { onLogClick(log) })
@@ -2675,7 +2728,12 @@ fun LogList(
 }
 
 @Composable
-fun DaySummaryCard(daySummaryCount: Int, onClick: () -> Unit) {
+fun DaySummaryCard(daySummaryCount: Int, selectedDate: LocalDate, onClick: () -> Unit) {
+    val today = LocalDate.now()
+    val includeYear = selectedDate.year != today.year
+    val pattern = if (includeYear) "MMMM d, yyyy" else "MMMM d"
+    val title = "Summary for " + selectedDate.format(DateTimeFormatter.ofPattern(pattern, Locale.getDefault()))
+
     Card(
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
@@ -2692,7 +2750,7 @@ fun DaySummaryCard(daySummaryCount: Int, onClick: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Day summary",
+                    text = title,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -2860,43 +2918,264 @@ fun LogItem(log: LogEntity, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DateSelector(selectedDate: LocalDate, onDateSelected: (LocalDate) -> Unit) {
-    val days = (0..30).map { LocalDate.now().minusDays(it.toLong()) }
-    
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        reverseLayout = true 
-    ) {
-        items(days) { date ->
-            val isSelected = date == selectedDate
-            Card(
-                onClick = { onDateSelected(date) },
-                modifier = Modifier.width(64.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                ),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+    val today = LocalDate.now()
+    val halfWindow = 15
+    val start = selectedDate.minusDays(halfWindow.toLong())
+    val end = run {
+        val candidate = selectedDate.plusDays(halfWindow.toLong())
+        if (candidate.isAfter(today)) today else candidate
+    }
+    val count = (end.toEpochDay() - start.toEpochDay() + 1L).toInt()
+    val days = (0 until count).map { start.plusDays(it.toLong()) }
+    val selectedIndex = (selectedDate.toEpochDay() - start.toEpochDay()).toInt()
+
+    BoxWithConstraints {
+        val viewportPx = with(LocalDensity.current) { maxWidth.toPx() }
+        val itemWidthPx = with(LocalDensity.current) { 64.dp.toPx() }
+        val spacingPx = with(LocalDensity.current) { 8.dp.toPx() }
+        // scrollToItem's offset is how far *past* the item's start the container
+        // left edge lands (positive => item scrolls off the left edge). To center
+        // the item we move the container's left edge to before the item's start,
+        // hence the negative value. Spacing is subtracted so the item's visual
+        // center (not its leading edge + gap) lands in the viewport center.
+        val centerOffsetPx = (itemWidthPx / 2f - viewportPx / 2f - spacingPx / 2f).toInt()
+        val state = rememberLazyListState()
+        LaunchedEffect(selectedDate, days.size) {
+            state.scrollToItem(selectedIndex, centerOffsetPx)
+        }
+        LazyRow(
+            state = state,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(days) { date ->
+                val isSelected = date == selectedDate
+                val isFuture = date.isAfter(today)
+                Card(
+                    onClick = { onDateSelected(date) },
+                    enabled = !isFuture,
+                    modifier = Modifier.width(64.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    Text(
-                        text = date.format(DateTimeFormatter.ofPattern("EEE")),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = date.dayOfMonth.toString(),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = date.format(DateTimeFormatter.ofPattern("EEE")),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = date.dayOfMonth.toString(),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun CalendarIconButton(onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.size(64.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primary
+        ),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.DateRange,
+                contentDescription = "Open calendar",
+                tint = MaterialTheme.colorScheme.onPrimary
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CalendarScreen(
+    selectedDate: LocalDate,
+    datesWithEntries: Set<LocalDate>,
+    onDateSelected: (LocalDate) -> Unit,
+    onBack: () -> Unit,
+    showBackButton: Boolean,
+    showCloseButton: Boolean
+) {
+    var displayMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
+    val today = LocalDate.now()
+    val firstDayOfWeek = WeekFields.of(Locale.getDefault()).firstDayOfWeek
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Select a day") },
+                navigationIcon = if (showBackButton) {
+                    {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.ArrowBack, "Back")
+                        }
+                    }
+                } else ({}),
+                actions = {
+                    TextButton(onClick = {
+                        displayMonth = YearMonth.from(today)
+                        onDateSelected(today)
+                    }) {
+                        Text("Today")
+                    }
+                    if (showCloseButton) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.Close, "Close")
+                        }
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { displayMonth = displayMonth.minusMonths(1) }) {
+                    Icon(Icons.Default.KeyboardArrowLeft, "Previous month")
+                }
+                Text(
+                    text = displayMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                IconButton(onClick = { displayMonth = displayMonth.plusMonths(1) }) {
+                    Icon(Icons.Default.KeyboardArrowRight, "Next month")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val weekDayLabels = remember(firstDayOfWeek) {
+                (0..6).map { offset -> firstDayOfWeek.plus(offset.toLong()).getDisplayName(java.time.format.TextStyle.NARROW, Locale.getDefault()) }
+            }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                weekDayLabels.forEach { label ->
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            val firstOfMonth = displayMonth.atDay(1)
+            val leadingBlanks = (firstOfMonth.dayOfWeek.value - firstDayOfWeek.value + 7) % 7
+            val cells: List<LocalDate?> = List(leadingBlanks) { null } +
+                (1..displayMonth.lengthOfMonth()).map { displayMonth.atDay(it) }
+            val weeks = cells.chunked(7)
+
+            weeks.forEach { week ->
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    week.forEach { date ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (date != null) {
+                                CalendarDayCell(
+                                    date = date,
+                                    isSelected = date == selectedDate,
+                                    hasEntries = date in datesWithEntries,
+                                    isFuture = date.isAfter(today),
+                                    onClick = { onDateSelected(date) }
+                                )
+                            } else {
+                                Spacer(modifier = Modifier.aspectRatio(1f))
+                            }
+                        }
+                    }
+                    // Pad the final row so cells keep a consistent size.
+                    repeat(7 - week.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Days with entries",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CalendarDayCell(
+    date: LocalDate,
+    isSelected: Boolean,
+    hasEntries: Boolean,
+    isFuture: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .aspectRatio(1f)
+            .padding(2.dp)
+            .clip(CircleShape)
+            .background(
+                when {
+                    isSelected -> MaterialTheme.colorScheme.primary
+                    hasEntries -> MaterialTheme.colorScheme.primaryContainer
+                    else -> Color.Transparent
+                }
+            )
+            .alpha(if (isFuture) 0.3f else 1f)
+            .clickable(enabled = !isFuture, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = date.dayOfMonth.toString(),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (isSelected || hasEntries) FontWeight.Bold else FontWeight.Normal,
+            color = when {
+                isSelected -> MaterialTheme.colorScheme.onPrimary
+                hasEntries -> MaterialTheme.colorScheme.onPrimaryContainer
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
     }
 }
 
