@@ -19,12 +19,12 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.HealthTrack"
+        android:theme="@style/Theme.OmniTracker"
         tools:targetApi="31">
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.HealthTrack">
+            android:theme="@style/Theme.OmniTracker">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -33,7 +33,7 @@
         
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.jonny.healthtrack.fileprovider"
+            android:authorities="com.oxpsi.omnitracker.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

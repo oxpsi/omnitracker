@@ -1,6 +1,6 @@
-# HealthTrack - Project Overview & Agent Context
+# OmniTracker - Project Overview & Agent Context
 
-**Project:** HealthTrack
+**Project:** OmniTracker
 **Goal:** A broad, simple health logging application for tracking "anything and everything" (medications, food, stool, mood) via quick photo capture and notes.
 **Core Philosophy:** Super simple, low friction. Keep sensitive health photos (e.g., medical issues, stool) separate from the user's main camera roll.
 
@@ -10,7 +10,7 @@
 *   **Build System:** Gradle (Kotlin DSL)
 *   **Architecture:** Single Activity (`MainActivity`), local state management (Room Database).
 *   **Data Storage:** 
-    *   Metadata: SQLite via Room (`healthtrack_database`).
+    *   Metadata: SQLite via Room (`omnitracker_database`).
     *   Images: `getExternalFilesDir(Environment.DIRECTORY_PICTURES)` (Private app storage).
 *   **AI Analysis:** Single OpenAI-compatible chat completions provider (user-configurable base URL, API key, organization, model). NO more Gemini, Responses API, or dual-provider fallback.
 
@@ -55,7 +55,7 @@ Generates the APK file without installing.
 ```bash
 ./gradlew assembleDebug
 ```
-*   **Output Location:** `app/build/outputs/apk/debug/app-debug.apk`
+*   **Output Location:** `app/build/outputs/apk/debug/omnitracker.apk` (filename is pinned by the build config)
 
 **3. Clean Build:**
 Use this if you encounter weird compilation errors or after changing strict build configurations.
@@ -86,10 +86,10 @@ If cloning this repo on a MacBook Pro:
 *   **Wear OS:** Quick log from watch.
 
 ## ⚠️ Important Files
-*   `app/src/main/java/com/jonny/healthtrack/MainActivity.kt`: Main UI and Navigation.
-*   `app/src/main/java/com/jonny/healthtrack/ai/AiAnalysisService.kt`: Logic for choosing AI provider.
-*   `app/src/main/java/com/jonny/healthtrack/ai/providers/`: provider interface and `ChatCompletionsProvider` implementation (chat completions endpoint, includes `discoverModels`).
-*   `app/src/main/java/com/jonny/healthtrack/data/LogRepository.kt`: Data handling and AI invocation.
+*   `app/src/main/java/com/oxpsi/omnitracker/MainActivity.kt`: Main UI and Navigation.
+*   `app/src/main/java/com/oxpsi/omnitracker/ai/AiAnalysisService.kt`: Logic for choosing AI provider.
+*   `app/src/main/java/com/oxpsi/omnitracker/ai/providers/`: provider interface and `ChatCompletionsProvider` implementation (chat completions endpoint, includes `discoverModels`).
+*   `app/src/main/java/com/oxpsi/omnitracker/data/LogRepository.kt`: Data handling and AI invocation.
 
 ## 🐛 Known Quirks / "Watch Outs"
 *   **Permissions:** The app asks for Camera/Location permissions on usage. If denied, features silently fail.

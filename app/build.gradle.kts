@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.jonny.healthtrack"
+    namespace = "com.oxpsi.omnitracker"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.jonny.healthtrack"
+        applicationId = "com.oxpsi.omnitracker"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
