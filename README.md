@@ -1,5 +1,9 @@
 # OmniTracker
 
+<p align="center">
+  <img src="docs/nutrition_summary_preview.png" alt="OmniTracker nutrition summary preview" width="540">
+</p>
+
 A broad, simple health-logging app for tracking "anything and everything" with a focus on **nutrition** — snap a photo of a meal, supplement, or anything else, and get an automated nutrition and component breakdown alongside your log. Also tracks medications, stool, mood, and general wellness entries via quick photo capture and notes.
 
 **Works with any multimodal chat-completions endpoint.** OmniTracker speaks the standard OpenAI chat-completions API, so any provider that supports vision/image inputs (OpenAI, OpenRouter, local Ollama/Llama.cpp with vision models, LM Studio, etc.) works out of the box. You configure base URL, API key, and model in-app; nothing is hardcoded to a specific vendor.
