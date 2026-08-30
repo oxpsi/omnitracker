@@ -12,15 +12,16 @@ A broad, simple health-logging app for tracking "anything and everything" with a
 
 ## Features
 
-- **Camera capture** — `ActivityResultContracts.TakePicture()` launches the system camera.
-- **Private gallery** — images are stored in app-private directories, not the system Gallery.
-- **Automatic metadata** — timestamp and location (lat/long) captured per entry.
-- **Quick notes** — immediate text-note prompt after each capture.
-- **History** — date-based selector to browse past entries, with day-level nutrition rollups (calories, macros, component aggregation, and caloric-contribution percentages).
-- **Nutrition analysis** — the AI extracts per-entry Title, Type (food/medicine/etc.), and Components (ingredients with quantities), enabling calorie and macro estimates per log and per day.
-- **AI analysis (bring your own endpoint)** — uses any multimodal OpenAI-compatible chat-completions endpoint (base URL, API key, and model all user-configurable in Settings). Supports a model discovery list when the endpoint exposes one. Settings persist across app updates.
-- **Persistence** — Room database; data survives app restarts.
-- **Import / Export** — JSONL (lite, metadata only) and ZIP (full, with images) backup/restore.
+- **Automatic nutrition calculation** — estimate calories, macros, and component breakdowns from just a photo and/or text note. No manual entry required.
+- **Bring your own endpoint** — configure any multimodal OpenAI-compatible chat-completions endpoint (base URL, API key, model). Works with OpenAI, OpenRouter, local Ollama/Llama.cpp with vision models, LM Studio, and others. Requires a vision-capable model.
+- **Recipes** — create and search a library of recipes. A recipe can be a photo of a dish, packaged food label, or nutrition facts panel; the AI extracts its components once and attaches them as batch context to future logs of that recipe.
+- **Track anything** — log food, medications, supplements, stool, mood, and general observations. Each entry is typed automatically and can be marked private to keep it out of the gallery.
+- **Import / Export** — back up and restore your database as JSONL (metadata only) or ZIP (full, with images). Lite exports summarize image content via the stored AI analysis instead of carrying file bytes.
+- **Customizable tracking** — define additional nutrients or chemicals to track beyond the built-in baseline set; the AI fills them per entry when present.
+- **Private, app-local photos** — images stay in app-private storage, separate from your main camera roll. Use the in-app camera, pick an existing photo from your gallery, or re-download any app-captured photo later.
+- **Day summaries** — date-based history with per-day nutrition rollups (calories, macros, component aggregation, caloric-contribution percentages) and a shareable themed summary image.
+- **On-device persistence** — Room/SQLite; data survives app restarts. Type-weighted gallery sorting and a "reuse" picker make revisiting common entries fast.
+- **Background analysis** — WorkManager handles AI calls off the main thread, with in-app status and cancellation.
 
 ## Tech stack
 
