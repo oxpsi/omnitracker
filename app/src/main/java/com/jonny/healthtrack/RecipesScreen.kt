@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
@@ -304,6 +305,16 @@ private fun RecipesListContent(
     onOpen: (RecipeEntity) -> Unit,
     onQuickLog: (RecipeEntity) -> Unit
 ) {
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredRecipes = remember(recipes, searchQuery) {
+        val q = searchQuery.trim()
+        if (q.isEmpty()) recipes
+        else recipes.filter { recipe ->
+            recipe.title.contains(q, ignoreCase = true) ||
+            recipe.description.contains(q, ignoreCase = true)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -355,12 +366,44 @@ private fun RecipesListContent(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(recipes) { recipe ->
-                    RecipeCard(
-                        recipe = recipe,
-                        onClick = { onOpen(recipe) },
-                        onQuickLog = { onQuickLog(recipe) }
+                item {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Search recipes") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear search")
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
                     )
+                }
+
+                if (filteredRecipes.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("No recipes match \"$searchQuery\"", color = Color.Gray)
+                        }
+                    }
+                } else {
+                    items(filteredRecipes) { recipe ->
+                        RecipeCard(
+                            recipe = recipe,
+                            onClick = { onOpen(recipe) },
+                            onQuickLog = { onQuickLog(recipe) }
+                        )
+                    }
                 }
             }
         }

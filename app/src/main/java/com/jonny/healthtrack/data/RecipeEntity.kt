@@ -13,5 +13,7 @@ data class RecipeEntity(
     val ingredients: String,
     val imagePath: String = "",
     @ColumnInfo(name = "createdAt")
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "lastActivity", defaultValue = "0")
+    val lastActivity: Long = System.currentTimeMillis()
 )

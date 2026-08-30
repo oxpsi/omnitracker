@@ -26,6 +26,10 @@ class RecipeRepository(
         recipeDao.updateRecipe(recipe)
     }
 
+    suspend fun bumpLastActivity(recipeId: String) {
+        recipeDao.touchLastActivity(recipeId, System.currentTimeMillis())
+    }
+
     suspend fun deleteRecipe(recipe: RecipeEntity) {
         recipeDao.deleteRecipe(recipe)
         if (recipe.imagePath.isNotEmpty()) {

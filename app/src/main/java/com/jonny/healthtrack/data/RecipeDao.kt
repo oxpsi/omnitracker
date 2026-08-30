@@ -10,13 +10,13 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface RecipeDao {
-    @Query("SELECT * FROM recipes ORDER BY createdAt DESC")
+    @Query("SELECT * FROM recipes ORDER BY lastActivity DESC, createdAt DESC")
     fun getAllRecipes(): Flow<List<RecipeEntity>>
 
     @Query("SELECT * FROM recipes WHERE id IN (:ids)")
     suspend fun getRecipesByIds(ids: List<String>): List<RecipeEntity>
 
-    @Query("SELECT * FROM recipes ORDER BY createdAt DESC")
+    @Query("SELECT * FROM recipes ORDER BY lastActivity DESC, createdAt DESC")
     suspend fun getAllRecipesSnapshot(): List<RecipeEntity>
 
     @Query("SELECT * FROM recipes WHERE id = :id")
@@ -27,6 +27,9 @@ interface RecipeDao {
 
     @Update
     suspend fun updateRecipe(recipe: RecipeEntity)
+
+    @Query("UPDATE recipes SET lastActivity = :timestamp WHERE id = :id")
+    suspend fun touchLastActivity(id: String, timestamp: Long)
 
     @Delete
     suspend fun deleteRecipe(recipe: RecipeEntity)
