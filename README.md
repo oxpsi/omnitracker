@@ -1,7 +1,7 @@
 # OmniTracker
 
 <p align="center">
-  <img src="docs/nutrition_summary_preview.png" alt="OmniTracker nutrition summary preview" width="540">
+  <img src="docs/nutrition_summary_preview.jpg" alt="OmniTracker nutrition summary preview" width="540">
 </p>
 
 A broad, simple health-logging app for tracking "anything and everything" with a focus on **nutrition** — snap a photo of a meal, supplement, or anything else, and get an automated nutrition and component breakdown alongside your log. Also tracks medications, stool, mood, and general wellness entries via quick photo capture and notes.
