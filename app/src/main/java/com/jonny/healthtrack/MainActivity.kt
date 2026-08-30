@@ -121,6 +121,7 @@ import com.jonny.healthtrack.data.LogRepository
 import com.jonny.healthtrack.data.RecipeRepository
 import com.jonny.healthtrack.data.DatabaseStats
 import com.jonny.healthtrack.util.aggregateFoodComponents
+import com.jonny.healthtrack.util.caloricContributionPercent
 import com.jonny.healthtrack.util.normalizeCapturedJpegInPlace
 import com.jonny.healthtrack.util.AppThemeColor
 import com.jonny.healthtrack.util.ThemePreferences
@@ -207,6 +208,9 @@ fun HealthTrackTheme(
                 primary = Color(0xFF8BC34A),
                 secondary = Color(0xFFAED581),
                 tertiary = Color(0xFFDCEDC8),
+                background = Color(0xFF101012),
+                surface = Color(0xFF101012),
+                surfaceVariant = Color(0xFF2A2A2E),
                 primaryContainer = Color(0xFF4A6B2E),
                 secondaryContainer = Color(0xFF5A7D33),
                 tertiaryContainer = Color(0xFF6B8E3D)
@@ -216,6 +220,9 @@ fun HealthTrackTheme(
                 primary = Color(0xFF4CAF50),
                 secondary = Color(0xFF8BC34A),
                 tertiary = Color(0xFFCDDC39),
+                background = Color(0xFFF2F2F0),
+                surface = Color(0xFFF2F2F0),
+                surfaceVariant = Color(0xFFE4E4E0),
                 primaryContainer = Color(0xFFD7EBC4),
                 secondaryContainer = Color(0xFFE8F5DC),
                 tertiaryContainer = Color(0xFFEFF7E5)
@@ -226,6 +233,9 @@ fun HealthTrackTheme(
                 primary = Color(0xFF64B5F6),
                 secondary = Color(0xFF4FC3F7),
                 tertiary = Color(0xFFB3E5FC),
+                background = Color(0xFF101012),
+                surface = Color(0xFF101012),
+                surfaceVariant = Color(0xFF2A2A2E),
                 primaryContainer = Color(0xFF1B5E8A),
                 secondaryContainer = Color(0xFF2273A0),
                 tertiaryContainer = Color(0xFF2D87B5)
@@ -235,6 +245,9 @@ fun HealthTrackTheme(
                 primary = Color(0xFF2196F3),
                 secondary = Color(0xFF03A9F4),
                 tertiary = Color(0xFFB3E5FC),
+                background = Color(0xFFF2F2F0),
+                surface = Color(0xFFF2F2F0),
+                surfaceVariant = Color(0xFFE4E4E0),
                 primaryContainer = Color(0xFFC6DEF5),
                 secondaryContainer = Color(0xFFD4ECFB),
                 tertiaryContainer = Color(0xFFE3F3FC)
@@ -245,6 +258,9 @@ fun HealthTrackTheme(
                 primary = Color(0xFFE57373),
                 secondary = Color(0xFFFF8A80),
                 tertiary = Color(0xFFFFCDD2),
+                background = Color(0xFF101012),
+                surface = Color(0xFF101012),
+                surfaceVariant = Color(0xFF2A2A2E),
                 primaryContainer = Color(0xFF8A2A2A),
                 secondaryContainer = Color(0xFFA03030),
                 tertiaryContainer = Color(0xFFB53838)
@@ -254,6 +270,9 @@ fun HealthTrackTheme(
                 primary = Color(0xFFF44336),
                 secondary = Color(0xFFE57373),
                 tertiary = Color(0xFFFFCDD2),
+                background = Color(0xFFF2F2F0),
+                surface = Color(0xFFF2F2F0),
+                surfaceVariant = Color(0xFFE4E4E0),
                 primaryContainer = Color(0xFFF5D0CC),
                 secondaryContainer = Color(0xFFFCDAD7),
                 tertiaryContainer = Color(0xFFFEE8E6)
@@ -264,6 +283,9 @@ fun HealthTrackTheme(
                 primary = Color(0xFFBA68C8),
                 secondary = Color(0xFFCE93D8),
                 tertiary = Color(0xFFE1BEE7),
+                background = Color(0xFF101012),
+                surface = Color(0xFF101012),
+                surfaceVariant = Color(0xFF2A2A2E),
                 primaryContainer = Color(0xFF6A3A72),
                 secondaryContainer = Color(0xFF7A4482),
                 tertiaryContainer = Color(0xFF8A5092)
@@ -273,6 +295,9 @@ fun HealthTrackTheme(
                 primary = Color(0xFF9C27B0),
                 secondary = Color(0xFFBA68C8),
                 tertiary = Color(0xFFE1BEE7),
+                background = Color(0xFFF2F2F0),
+                surface = Color(0xFFF2F2F0),
+                surfaceVariant = Color(0xFFE4E4E0),
                 primaryContainer = Color(0xFFEAC9EF),
                 secondaryContainer = Color(0xFFF0D9F4),
                 tertiaryContainer = Color(0xFFF5E4F8)
@@ -283,6 +308,9 @@ fun HealthTrackTheme(
                 primary = Color(0xFFFFB74D),
                 secondary = Color(0xFFFFCC80),
                 tertiary = Color(0xFFFFE0B2),
+                background = Color(0xFF101012),
+                surface = Color(0xFF101012),
+                surfaceVariant = Color(0xFF2A2A2E),
                 primaryContainer = Color(0xFF8A5A1E),
                 secondaryContainer = Color(0xFF9D6925),
                 tertiaryContainer = Color(0xFFB0782C)
@@ -292,6 +320,9 @@ fun HealthTrackTheme(
                 primary = Color(0xFFFF9800),
                 secondary = Color(0xFFFFB74D),
                 tertiary = Color(0xFFFFE0B2),
+                background = Color(0xFFF2F2F0),
+                surface = Color(0xFFF2F2F0),
+                surfaceVariant = Color(0xFFE4E4E0),
                 primaryContainer = Color(0xFFFCDDB8),
                 secondaryContainer = Color(0xFFFDE8CF),
                 tertiaryContainer = Color(0xFFFEEFE0)
@@ -302,6 +333,9 @@ fun HealthTrackTheme(
                 primary = Color(0xFF4DB6AC),
                 secondary = Color(0xFF80CBC4),
                 tertiary = Color(0xFFB2DFDB),
+                background = Color(0xFF101012),
+                surface = Color(0xFF101012),
+                surfaceVariant = Color(0xFF2A2A2E),
                 primaryContainer = Color(0xFF1A5E58),
                 secondaryContainer = Color(0xFF227068),
                 tertiaryContainer = Color(0xFF2D827A)
@@ -311,6 +345,9 @@ fun HealthTrackTheme(
                 primary = Color(0xFF009688),
                 secondary = Color(0xFF26A69A),
                 tertiary = Color(0xFFB2DFDB),
+                background = Color(0xFFF2F2F0),
+                surface = Color(0xFFF2F2F0),
+                surfaceVariant = Color(0xFFE4E4E0),
                 primaryContainer = Color(0xFFC0E8E4),
                 secondaryContainer = Color(0xFFD0EFEB),
                 tertiaryContainer = Color(0xFFE0F5F3)
@@ -404,6 +441,7 @@ fun AppContent(
             val imageFile = imagePath.takeIf { it.isNotEmpty() }?.let { File(it) }
             getLastLocation(context) { lat, long ->
                 createLog(imageFile, note, lat, long, true, null, recipeId)
+                scope.launch { recipeRepository.bumpLastActivity(recipeId) }
             }
         }
     }
@@ -1241,11 +1279,21 @@ fun DaySummaryScreen(
                                             color = Color.Gray
                                         )
                                     }
-                                    Text(
-                                        text = "${formatQuantity(component.quantity)} ${component.unit ?: ""}".trim(),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
+                                    val contributionPct = caloricContributionPercent(component, components)
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = "${formatQuantity(component.quantity)} ${component.unit ?: ""}".trim(),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        if (contributionPct != null) {
+                                            Text(
+                                                text = String.format(Locale.US, "%.0f%% energy", contributionPct),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                                            )
+                                        }
+                                    }
                                 }
                                 
                                 if (isExpanded) {

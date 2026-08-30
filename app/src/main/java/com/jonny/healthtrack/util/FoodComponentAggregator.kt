@@ -48,6 +48,23 @@ private val preferredComponentDisplayNames: Map<String, String> = mapOf(
     "caffeine" to "Caffeine"
 )
 
+private val caloricKcalPerGram: Map<String, Double> = mapOf(
+    "protein" to 4.0,
+    "carbohydrate" to 4.0,
+    "total fat" to 9.0,
+    "saturated fat" to 9.0,
+    "sugar" to 4.0
+)
+
+fun caloricContributionPercent(component: AggregatedComponent, allComponents: List<AggregatedComponent>): Double? {
+    val kcalPerGram = caloricKcalPerGram[component.keyName] ?: return null
+    val energyComponent = allComponents.find { it.keyName == "energy" } ?: return null
+    val totalKcal = energyComponent.quantity
+    if (totalKcal <= 0.0) return null
+    val contributionKcal = component.quantity * kcalPerGram
+    return (contributionKcal / totalKcal) * 100.0
+}
+
 private fun String.toTitleCaseWords(): String {
     return split(" ")
         .filter { it.isNotBlank() }
